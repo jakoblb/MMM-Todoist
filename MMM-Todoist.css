@@ -94,3 +94,6 @@
     width: 400px;
     overflow: hidden;
 }
+.todoCompleted {
+    text-decoration: line-through;
+}

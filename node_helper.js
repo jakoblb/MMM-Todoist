@@ -1,5 +1,6 @@
 "use strict";
 
+const LogDiff = require("envsub/js/LogDiff");
 /* Magic Mirror
  * Module: MMM-Todoist
  *
@@ -23,6 +24,11 @@ module.exports = NodeHelper.create({
 		if (notification === "FETCH_TODOIST") {
 			this.config = payload;
 			this.fetchTodos();
+		}
+		else if(notification === "CHECK_COMPLETED")
+		{
+			this.config = payload;
+			this.testCompleted();
 		}
 	},
 
@@ -65,7 +71,49 @@ module.exports = NodeHelper.create({
 			else{
 				console.log("Todoist api request status="+response.statusCode);
 			}
-
 		});
-	}
+	},
+
+	testCompleted : function() {
+		var self = this;
+		//request.debug = true;
+		var acessCode = self.config.accessToken;
+		request({
+			url: self.config.apiBase + "/" + self.config.apiVersion + "/" + self.config.todoistEndpointCompleted + "/",
+			method: "POST",
+			headers: {
+				"content-type": "application/x-www-form-urlencoded",
+				"cache-control": "no-cache",
+				"Authorization": "Bearer " + acessCode
+			},
+			form: {
+				annotate_items: true
+			}
+		},
+		function(error, response, body) {
+			if (error) {
+				self.sendSocketNotification("FETCH_ERROR", {
+					error: error
+				});
+				return console.error(" ERROR - MMM-Todoist: " + error);
+			}
+			if(self.config.debug){
+				console.log(body);
+			}
+			if (response.statusCode === 200) {
+				var taskJson = JSON.parse(body);
+				taskJson.items.forEach((item)=>{
+					if(item.item_object!=undefined)
+					{
+						item.item_object.contentHtml = markdown.makeHtml(item.content);
+					}
+				});
+				taskJson.accessToken = acessCode;
+				self.sendSocketNotification("TASKS_INC_COMPLETED", taskJson);
+			}
+			else{
+				console.log("Todoist api request status="+response.statusCode);
+			}
+		});
+	},
 });
