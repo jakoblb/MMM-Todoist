@@ -52,6 +52,8 @@ Module.register("MMM-Todoist", {
 		displayTasksWithinDays: -1, // If >= 0, do not print tasks with a due date more than this number of days into the future (e.g., 0 prints today and overdue)
 		// 2019-12-31 by thyed
 		displaySubtasks: true, // set to false to exclude subtasks
+		displayCompleted: true,
+		maksCompletedAgeDays: 14,//number of days to look back for completed tasks
 		displayAvatar: false,
 		showProject: true,
 		// projectColors: ["#95ef63", "#ff8581", "#ffc471", "#f9ec75", "#a8c8e4", "#d2b8a3", "#e2a8e4", "#cccccc", "#fb886e",
@@ -87,8 +89,9 @@ Module.register("MMM-Todoist", {
 		apiVersion: "v9",
 		apiBase: "https://todoist.com/API",
 		todoistEndpoint: "sync",
+		todoistEndpointCompleted: "completed/get_all",
 
-		todoistResourceType: "[\"items\", \"projects\", \"collaborators\", \"user\", \"labels\"]",
+		todoistResourceType: "[\"items\", \"projects\", \"collaborators\", \"user\", \"labels\", \"completed_info\", \"user_plan_limits\"]",
 
 		debug: false
 	},
@@ -237,6 +240,28 @@ Module.register("MMM-Todoist", {
 				Log.log("ToDoIst update OK, project : " + this.config.projects + " at : " + moment.unix(this.lastUpdate).format(this.config.displayLastUpdateFormat)); //AgP
 			}
 
+			if(this.config.displayCompleted)
+			{
+				if(payload.user_plan_limits.current.completed_tasks)
+				{
+					this.sendSocketNotification("CHECK_COMPLETED", this.config);
+				}
+				else
+				{
+					Log.error("Todoist Error. Users plan does not allow to check for completed items: " + payload.user_plan_limits.current.plan_name);
+					this.loaded = true;
+					this.updateDom(1000);
+				}
+			}
+			else
+			{
+				this.loaded = true;
+				this.updateDom(1000);
+			}
+		}
+		else if(notification === "TASKS_INC_COMPLETED")
+		{
+			this.parseCompletedTasks(payload);
 			this.loaded = true;
 			this.updateDom(1000);
 		} else if (notification === "FETCH_ERROR") {
@@ -345,21 +370,7 @@ Module.register("MMM-Todoist", {
 
 		//Used for ordering by date
 		items.forEach(function (item) {
-			if (item.due === null) {
-				item.due = {};
-				item.due["date"] = "2100-12-31";
-				item.all_day = true;
-			}
-			// Used to sort by date.
-			item.date = self.parseDueDate(item.due.date);
-
-			// as v8 API does not have 'all_day' field anymore then check due.date for presence of time
-			// if due.date has a time then set item.all_day to false else all_day is true
-			if (item.due.date.length > 10) {
-				item.all_day = false;
-			} else {
-				item.all_day = true;
-			}
+			self.sanitizeDate(item);
 		});
 
 		//***** Sorting code if you want to add new methods. */
@@ -394,6 +405,81 @@ Module.register("MMM-Todoist", {
 		};
 
 	},
+
+	parseCompletedTasks: function(completedTasks)
+	{
+		var self = this;
+		var itemsNoParent = [];
+		var labelIds = [];
+		if (completedTasks == undefined) {
+			return;
+		}
+		if (completedTasks.accessToken != self.config.accessToken) {
+			return;
+		}
+		if (completedTasks.items == undefined) {
+			return;
+		}
+
+		// TODO: DO we want to include fully completed projects etc?
+		if(this.tasks != undefined)
+		{
+			completedTasks.items.forEach(function (item)
+			{
+				if(item.item_object == undefined) { return; }
+				if(self.config.projects.find(project => item.item_object.project_id == project) == undefined &&
+					!self.isLabelInConfig(item.item_object.labels)) { return; }
+
+				if (item.item_object.parent_id != null)
+				{
+					if(!self.config.displaySubtasks) { return; }
+					else
+					{
+						var foundParent = false;
+						for(ii = 0; ii < self.tasks.items.length; ii++)
+						{
+							if(self.tasks.items[ii].id == item.item_object.parent_id)
+							{
+								foundParent = true;
+							}
+							else if(foundParent)
+							{
+								// We assume that when a new parent comes the old is away
+								if(self.tasks.items[ii].parent_id == null &&
+									self.tasks.items.find(itemToCheck => itemToCheck.content == item.content) == undefined
+								)
+								{
+									self.sanitizeDate(item.item_object);
+									self.tasks.items.splice(ii, 0, item.item_object);
+									foundParent = false;
+								}
+							}
+						}
+					}
+				}
+				else
+				{
+					// We always have completed at the end of the list
+					itemsNoParent.push(item);
+				}
+			});
+			itemsNoParent.forEach(function(item){
+				self.sanitizeDate(item.item_object);
+				self.tasks.items.push(item.item_object);
+			});
+			//Slice by max Entries
+			this.tasks.items = this.tasks.items.slice(0, this.config.maximumEntries);
+		}
+	},
+
+	isLabelInConfig: function(labelsToCheck)
+	{
+		this.config.labels.forEach(function(label)
+		{
+			if(labelsToCheck.find(labelToCheck => label == labelToCheck) != undefined) { return true; }
+		});
+		return false;
+	},
 	/*
 	 * The Todoist API returns task due dates as strings in these two formats: YYYY-MM-DD and YYYY-MM-DDThh:mm:ss
 	 * This depends on whether a task only has a due day or a due day and time. You cannot pass this date string into
@@ -402,6 +488,25 @@ Module.register("MMM-Todoist", {
 	 * otherwise it is local time. The parseDueDate function keeps Dates consistent by interpreting them all relative
 	 * to the same timezone.
 	 */
+	sanitizeDate: function(item)
+	{
+		if (item.due === null) {
+			item.due = {};
+			item.due["date"] = "2100-12-31";
+			item.all_day = true;
+		}
+		// Used to sort by date.
+		item.date = this.parseDueDate(item.due.date);
+
+		// as v8 API does not have 'all_day' field anymore then check due.date for presence of time
+		// if due.date has a time then set item.all_day to false else all_day is true
+		if (item.due.date.length > 10) {
+			item.all_day = false;
+		} else {
+			item.all_day = true;
+		}
+	},
+
 	parseDueDate: function (date) {
 		let [year, month, day, hour = 0, minute = 0, second = 0] = date.split(/\D/).map(Number);
 
@@ -489,7 +594,7 @@ Module.register("MMM-Todoist", {
 				className = "";
 				break;
 		}
-		return this.createCell(className, "&nbsp;");;
+		return this.createCell(className, "&nbsp;");
 	},
 	addColumnSpacerCell: function() {
 		return this.createCell("spacerCell", "&nbsp;");
@@ -500,12 +605,20 @@ Module.register("MMM-Todoist", {
 
 		var para = temp.getElementsByTagName('p');
 		var taskText = para[0].innerHTML;
+
+		var cellClasses = "title bright alignLeft";
 		// if sorting by todoist, indent subtasks under their parents
 		if (this.config.sortType === "todoist" && item.parent_id) {
 			// this item is a subtask so indent it
 			taskText = '- ' + taskText;
 		}
-		return this.createCell("title bright alignLeft", 
+		
+		if(item.checked)
+		{
+			cellClasses += " todoCompleted";
+		}
+
+		return this.createCell(cellClasses, 
 			this.shorten(taskText, this.config.maxTitleLength, this.config.wrapEvents));
 
 		// return this.createCell("title bright alignLeft", item.content);
@@ -638,7 +751,8 @@ Module.register("MMM-Todoist", {
 			//Add the Row
 			divRow.className = "divTableRow";
 			
-
+			/*Log.log(item.content);
+			Log.log(item);*/
 			//Columns
 			divRow.appendChild(this.addPriorityIndicatorCell(item));
 			divRow.appendChild(this.addColumnSpacerCell());
