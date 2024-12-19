@@ -36,7 +36,7 @@ Module.register("MMM-Todoist", {
 		maximumEntries: 10,
 		projects: [],
 		blacklistProjects: false,
-	    	labels: [""],
+	    labels: [""],
 		updateInterval: 10 * 60 * 1000, // every 10 minutes,
 		fade: true,
 		fadePoint: 0.25,
@@ -54,6 +54,10 @@ Module.register("MMM-Todoist", {
 		displaySubtasks: true, // set to false to exclude subtasks
 		displayCompleted: true,
 		displayAvatar: false,
+		// New config from JakobLB
+		displayCompleted: true,
+		maksCompletedAgeDays: 14,//number of days to look back for completed tasks
+		// Other
 		showProject: true,
 		// projectColors: ["#95ef63", "#ff8581", "#ffc471", "#f9ec75", "#a8c8e4", "#d2b8a3", "#e2a8e4", "#cccccc", "#fb886e",
 		// 	"#ffcc00", "#74e8d3", "#3bd5fb", "#dc4fad", "#ac193d", "#d24726", "#82ba00", "#03b3b2", "#008299",

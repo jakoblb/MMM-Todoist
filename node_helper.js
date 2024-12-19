@@ -78,6 +78,9 @@ module.exports = NodeHelper.create({
 		var self = this;
 		//request.debug = true;
 		var acessCode = self.config.accessToken;
+		var dateToLookbackForCompleted = new Date(Date.now() - self.config.maksCompletedAgeDays * 24 * 60 * 60 * 1000);
+		var dateString = dateToLookbackForCompleted.getFullYear()+"-"+String(dateToLookbackForCompleted.getMonth()+1).padStart(2, '0')+"-"+String(dateToLookbackForCompleted.getDate()).padStart(2, '0')+"T00:00:01.000000Z";
+		console.log(dateString);
 		request({
 			url: self.config.apiBase + "/" + self.config.apiVersion + "/" + self.config.todoistEndpointCompleted + "/",
 			method: "POST",
@@ -87,7 +90,8 @@ module.exports = NodeHelper.create({
 				"Authorization": "Bearer " + acessCode
 			},
 			form: {
-				annotate_items: true
+				since: dateString,
+				annotate_items: true,
 			}
 		},
 		function(error, response, body) {

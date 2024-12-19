@@ -1,7 +1,7 @@
 
 # MMM-Todoist
 ** Developer is not actively maintaining this Extension. **
-
+** Some extensions are created by Jakoblb **
 
 This an extension for the [MagicMirror](https://github.com/MichMich/MagicMirror). It can display your Todoist todos. You can add multiple instances with different lists. Only one account supported.
 The requests to the server will be paused is the module is not displayed (use of a carousel or hidden by Remote-Control for example) or by the use of a PIR sensor and the module MMM-PIR-Sensor. An immediate update will occurs at the return of the module display. 
@@ -25,7 +25,7 @@ modules: [
 			maximumEntries: 60,
 			updateInterval: 10*60*1000, // Update every 10 minutes
 			fade: false,      
-			// projects and/or labels is mandatory:
+			// projects and/or labels is mandatory, see configuration options for more details:
 			projects: [ 166564794 ], 
 			labels: [ "MagicMirror", "Important" ] // Tasks for any projects with these labels will be shown.
       }
@@ -35,9 +35,8 @@ modules: [
 
 ## Configuration options
 
-The following properties can be configured:
-
-
+The following properties \u\bmust\b\u be configured:
+\bNote\b that label OR project is mandatory, not both and that currently label takes priority over project
 <table width="100%">
 	<!-- why, markdown... -->
 	<thead>
@@ -58,20 +57,6 @@ The following properties can be configured:
 					<li>the "test token" generated in the <a href="https://developer.todoist.com/appconsole.html">App Management consol</a> without going through the steps of the oAuth token (For the web site value requested, you can use "http://example.com" if you don't have a website)</li>
 					<li>the "API token" found in your account's <a href="https://todoist.com/app/settings/integrations/developer">Integration > Developer settings</a></li>
 				</ul>
-			</td>
-		</tr>
-		<tr>
-			<td><code>blacklistProjects</code></td>
-			<td>
-				When this option is enabled, <code>projects</code> becomes a <i>blacklist.</i>
-				Any project that is <b>not</b> in <code>projects</code> will be used.<br>
-				<br><b>Possible values:</b> <code>boolean</code>
-				<br><b>Default value:</b> <code>false</code>
-				<br><b>Example:</b> <code>true</code>
-				<br>
-				<br>
-				NB: If used in combination with <code>labels</code>, tasks that are in a blacklisted
-				project but match a label will still be shown!
 			</td>
 		</tr>
 		<tr>
@@ -105,18 +90,81 @@ The following properties can be configured:
 				<b>This value and/or the projects entry must be specified</b>. If both projects and labels are specified, then tasks from both will be shown.
 			</td>
 		</tr>
+	</tbody>
+</table>
+
+The following properties can be configured:
+<table width="100%">
+	<!-- why, markdown... -->
+	<thead>
 		<tr>
-			<td><code>maximumEntries</code></td>
-			<td>Maximum number of todos to be shown.<br>
-				<br><b>Possible values:</b> <code>int</code>
-				<br><b>Default value:</b> <code>10</code>
+			<th>Option</th>
+			<th width="100%">Description</th>
+		</tr>
+	<thead>
+	<tbody>
+		<tr>
+			<td><code>blacklistProjects</code></td>
+			<td>
+				When this option is enabled, <code>projects</code> becomes a <i>blacklist.</i>
+				Any project that is <b>not</b> in <code>projects</code> will be used.<br>
+				<br><b>Possible values:</b> <code>boolean</code>
+				<br><b>Default value:</b> <code>false</code>
+				<br><b>Example:</b> <code>true</code>
+				<br>
+				<br>
+				NB: If used in combination with <code>labels</code>, tasks that are in a blacklisted
+				project but match a label will still be shown!
 			</td>
 		</tr>
 		<tr>
-			<td><code>updateInterval</code></td>
-			<td>How often the module should load new todos. Be careful, this is in ms, NOT seconds! So, too low a number will lock you out for repeated server attempts!<br>
-				<br><b>Possible values:</b> <code>int</code> in <code>milliseconds</code>
-				<br><b>Default value:</b> <code>10*60*1000</code>
+			<td><code>displayAvatar</code></td>
+			<td>Display avatar images of collaborators assigned to tasks in shared projects.<br>
+				<br><b>Possible values:</b> <code>boolean</code>
+				<br><b>Default value:</b> <code>false</code>
+			</td>
+		</tr>
+		<tr>
+			<td><code>displayCompleted</code></td>
+			<td>If this is set, display completed tasks within the last 14 days or whatever is configured in <code>maksCompletedAgeDays</code><br>
+			<b>Note!</b> This only works with a paid version of Todoist<br>
+				<br><b>Possible values:</b> <code>boolean</code>
+				<br><b>Default value:</b> <code>false</code>
+			</td>
+		</tr>
+		<tr>
+			<td><code>displayLastUpdate</code></td>
+			<td>If true this will display the last update time at the end of the task list. See screenshot below<br>
+				<br><b>Possible values:</b> <code>boolean</code>
+				<br><b>Default value:</b> <code>false</code>
+			</td>
+		</tr>
+		<tr>
+			<td><code>displayLastUpdateFormat</code></td>
+			<td>Format to use for the time display if displayLastUpdate:true <br>
+				<br><b>Possible values:</b> See [Moment.js formats](http://momentjs.com/docs/#/parsing/string-format/)
+				<br><b>Default value:</b> <code>'dd - HH:mm:ss'</code>
+			</td>
+		</tr>
+		<tr>
+			<td><code>displaySubtasks</code></td>
+			<td>Controls if subtasks are displayed or not.<br>
+				<br><b>Possible values:</b> <code>boolean</code>
+				<br><b>Default value:</b> <code>true</code>
+			</td>
+		</tr>
+		<tr>
+			<td><code>displayTasksWithinDays</code></td>
+			<td>If non-negative, only display tasks with a due date within <code>displayTasksWithinDays</code> days. For instance, setting this to 0 will only show tasks due today or overdue. This will not affect tasks without a due date, <code>displayTasksWithoutDue</code> controls those.<br>
+				<br><b>Possible values:</b> <code>-1</code> - <code>∞</code>
+				<br><b>Default value:</b> <code>-1</code> (filtering disabled)
+			</td>
+		</tr>
+		<tr>
+			<td><code>displayTasksWithoutDue</code></td>
+			<td>Controls if tasks without a due date are displayed.<br>
+				<br><b>Possible values:</b> <code>boolean</code>
+				<br><b>Default value:</b> <code>true</code>
 			</td>
 		</tr>
 		<tr>
@@ -127,6 +175,13 @@ The following properties can be configured:
 			</td>
 		</tr>
 		<tr>
+			<td><code>fadeMinimumOpacity</code></td>
+			<td>Opacity of the last item if fade is enabled.<br>
+				<br><b>Possible values:</b> <code>0</code> (last item is completely transparent) - <code>1</code> (no fade)
+				<br><b>Default value:</b> <code>0.25</code>
+			</td>
+		</tr>
+		<tr>
 			<td><code>fadePoint</code></td>
 			<td>Where to start fade?<br>
 				<br><b>Possible values:</b> <code>0</code> (top of the list) - <code>1</code> (bottom of list)
@@ -134,10 +189,32 @@ The following properties can be configured:
 			</td>
 		</tr>
 		<tr>
-			<td><code>fadeMinimumOpacity</code></td>
-			<td>Opacity of the last item if fade is enabled.<br>
-				<br><b>Possible values:</b> <code>0</code> (last item is completely transparent) - <code>1</code> (no fade)
-				<br><b>Default value:</b> <code>0.25</code>
+			<td><code>maksCompletedAgeDays</code></td>
+			<td>Number of days to look back for completed tasks<br>
+			<b>Note!</b> This only works with a paid version of Todoist<br>
+				<br><b>Possible values:</b> <code>int</code>
+				<br><b>Default value:</b> <code>14</code>
+			</td>
+		</tr>
+		<tr>
+			<td><code>hideWhenEmpty</code></td>
+			<td>Hide widget when all lists are empty (including header).<br>
+				<br><b>Possible values:</b> <code>boolean</code>
+				<br><b>Default value:</b> <code>false</code>
+			</td>
+		</tr>
+		<tr>
+			<td><code>maxTitleLength</code></td>
+			<td>Value cut the display of long tasks on several lines. See screenshot below<br>
+				<br><b>Possible values:</b> <code>10</code> - <code>50</code>
+				<br><b>Default value:</b> <code>25</code>
+			</td>
+		</tr>	
+		<tr>
+			<td><code>maximumEntries</code></td>
+			<td>Maximum number of todos to be shown.<br>
+				<br><b>Possible values:</b> <code>int</code>
+				<br><b>Default value:</b> <code>10</code>
 			</td>
 		</tr>
 		<tr>
@@ -160,17 +237,10 @@ The following properties can be configured:
 			</td>
 		</tr>
 		<tr>
-			<td><code>displayLastUpdate</code></td>
-			<td>If true this will display the last update time at the end of the task list. See screenshot below<br>
-				<br><b>Possible values:</b> <code>boolean</code>
-				<br><b>Default value:</b> <code>false</code>
-			</td>
-		</tr>
-		<tr>
-			<td><code>displayLastUpdateFormat</code></td>
-			<td>Format to use for the time display if displayLastUpdate:true <br>
-				<br><b>Possible values:</b> See [Moment.js formats](http://momentjs.com/docs/#/parsing/string-format/)
-				<br><b>Default value:</b> <code>'dd - HH:mm:ss'</code>
+			<td><code>updateInterval</code></td>
+			<td>How often the module should load new todos. Be careful, this is in ms, NOT seconds! So, too low a number will lock you out for repeated server attempts!<br>
+				<br><b>Possible values:</b> <code>int</code> in <code>milliseconds</code>
+				<br><b>Default value:</b> <code>10*60*1000</code>
 			</td>
 		</tr>
 		<tr>
@@ -179,50 +249,7 @@ The following properties can be configured:
 				<br><b>Possible values:</b> <code>boolean</code>
 				<br><b>Default value:</b> <code>false</code>
 			</td>
-		</tr>
-		<tr>
-			<td><code>maxTitleLength</code></td>
-			<td>Value cut the display of long tasks on several lines. See screenshot below<br>
-				<br><b>Possible values:</b> <code>10</code> - <code>50</code>
-				<br><b>Default value:</b> <code>25</code>
-			</td>
-		</tr>
-		<tr>
-			<td><code>displayTasksWithinDays</code></td>
-			<td>If non-negative, only display tasks with a due date within <code>displayTasksWithinDays</code> days. For instance, setting this to 0 will only show tasks due today or overdue. This will not affect tasks without a due date, <code>displayTasksWithoutDue</code> controls those.<br>
-				<br><b>Possible values:</b> <code>-1</code> - <code>∞</code>
-				<br><b>Default value:</b> <code>-1</code> (filtering disabled)
-			</td>
-		</tr>
-		<tr>
-			<td><code>displayTasksWithoutDue</code></td>
-			<td>Controls if tasks without a due date are displayed.<br>
-				<br><b>Possible values:</b> <code>boolean</code>
-				<br><b>Default value:</b> <code>true</code>
-			</td>
-		</tr>
-		<tr>
-			<td><code>displaySubtasks</code></td>
-			<td>Controls if subtasks are displayed or not.<br>
-				<br><b>Possible values:</b> <code>boolean</code>
-				<br><b>Default value:</b> <code>true</code>
-			</td>
-		</tr>
-		<tr>
-			<td><code>displayAvatar</code></td>
-			<td>Display avatar images of collaborators assigned to tasks in shared projects.<br>
-				<br><b>Possible values:</b> <code>boolean</code>
-				<br><b>Default value:</b> <code>false</code>
-			</td>
-		</tr>		
-		<tr>
-			<td><code>hideWhenEmpty</code></td>
-			<td>Hide widget when all lists are empty (including header).<br>
-				<br><b>Possible values:</b> <code>boolean</code>
-				<br><b>Default value:</b> <code>false</code>
-			</td>
-		</tr>
-		
+		</tr>	
 	</tbody>
 </table>
 
