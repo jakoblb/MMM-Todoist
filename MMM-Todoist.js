@@ -85,6 +85,8 @@ Module.register("MMM-Todoist", {
 			49:'#ccac93'
 		},
 
+		syncToken: "*", // Allows for optimized performance by ensuring an update procedure only runs if server returns new data. Can be disabled by setting to empty string
+
 		//This has been designed to use the Todoist Sync API.
 		apiVersion: "v9",
 		apiBase: "https://todoist.com/API",
@@ -130,6 +132,12 @@ Module.register("MMM-Todoist", {
 				this.config.projects = this.config.lists;
 			}
 		}
+
+		this.tasks = {
+			"items": [],
+			"projects": [],
+			"collaborators": []
+		};
 
 		// keep track of user's projects list (used to build the "whitelist")
 		this.userList = typeof this.config.projects !== "undefined" ?
@@ -233,6 +241,7 @@ Module.register("MMM-Todoist", {
 	// ******** Data sent from the Backend helper. This is the data from the Todoist API ************
 	socketNotificationReceived: function (notification, payload) {
 		if (notification === "TASKS") {
+			this.config.syncToken = payload.sync_token;
 			this.filterTodoistData(payload);
 
 			if (this.config.displayLastUpdate) {
@@ -242,13 +251,20 @@ Module.register("MMM-Todoist", {
 
 			if(this.config.displayCompleted)
 			{
-				if(payload.user_plan_limits.current.completed_tasks)
+				// Since we do partial sync, we should only assume new completed tasks if sync token changes and thus completed tasks does as well
+				// TODO: Check what happens in case we 
+				if(payload.user_plan_limits.current != undefined &&
+					payload.user_plan_limits.current.completed_tasks && 
+					payload.items.length > 0)
 				{
 					this.sendSocketNotification("CHECK_COMPLETED", this.config);
 				}
 				else
 				{
-					Log.error("Todoist Error. Users plan does not allow to check for completed items: " + payload.user_plan_limits.current.plan_name);
+					if(payload.items.length == 0)
+					{
+						Log.error("Todoist Error. Users plan does not allow to check for completed items: " + payload.user_plan_limits.current.plan_name);
+					}
 					this.loaded = true;
 					this.updateDom(1000);
 				}
@@ -284,6 +300,15 @@ Module.register("MMM-Todoist", {
 			return;
 		}
 
+		// We just copy the old data to rerun the filtering even if nothing new is coming from the server
+		// this should ensure that i.e. due dates will be updated even though no new tasks has been created
+		if (!tasks.full_sync)
+		{
+			if(self.tasks.items != undefined)
+			{
+				items = self.tasks.items;
+			}
+		}
 		if (this.config.blacklistProjects) {
 			// take all projects in payload, and remove the ones specified by user
 			// i.e., convert user's "whitelist" into a "blacklist"
@@ -394,16 +419,11 @@ Module.register("MMM-Todoist", {
 			sorteditems = self.sortByTodoist(items);
 			break;
 		}
-
-		//Slice by max Entries
-		items = items.slice(0, this.config.maximumEntries);
-
 		this.tasks = {
 			"items": items,
 			"projects": tasks.projects,
 			"collaborators": tasks.collaborators
 		};
-
 	},
 
 	parseCompletedTasks: function(completedTasks)
@@ -467,8 +487,6 @@ Module.register("MMM-Todoist", {
 				self.sanitizeDate(item.item_object);
 				self.tasks.items.push(item.item_object);
 			});
-			//Slice by max Entries
-			this.tasks.items = this.tasks.items.slice(0, this.config.maximumEntries);
 		}
 	},
 
@@ -715,7 +733,10 @@ Module.register("MMM-Todoist", {
 		if (this.config.hideWhenEmpty && this.tasks.items.length===0) {
 			return null;
 		}
-	
+
+		//Slice by max Entries is done here for simplicity
+		var truncatedItems = this.tasks.items.slice(0, this.config.maximumEntries);
+
 		//Add a new div to be able to display the update time alone after all the task
 		var wrapper = document.createElement("div");
 
@@ -746,7 +767,7 @@ Module.register("MMM-Todoist", {
 		}
 
 		//Iterate through Todos
-		this.tasks.items.forEach(item => {
+		truncatedItems.forEach(item => {
 			var divRow = document.createElement("div");
 			//Add the Row
 			divRow.className = "divTableRow";

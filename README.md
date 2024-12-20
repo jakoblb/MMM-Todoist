@@ -27,7 +27,8 @@ modules: [
 			fade: false,      
 			// projects and/or labels is mandatory:
 			projects: [ 166564794 ], 
-			labels: [ "MagicMirror", "Important" ] // Tasks for any projects with these labels will be shown.
+			labels: [ "MagicMirror", "Important" ], // Tasks for any projects with these labels will be shown.
+			syncToken: "*" // Disabled by default (set to "") to allow for better backwards compatability, but is recommended
       }
 	}
 ]
@@ -222,7 +223,16 @@ The following properties can be configured:
 				<br><b>Default value:</b> <code>false</code>
 			</td>
 		</tr>
-		
+		<tr>
+			<td><code>syncToken</code></td>
+			<td>Implementation of the syncToken now allowes for the API to only return new entries (including completed entries).<br>
+				Sync token usage can be enabled by setting this value to an empty string and MMM-Todoist will get all entries from the server for each API call (legacy mode of operation)<br>
+				<br><b>Possible values:</b><br>
+				<code>"*"</code> <span>- Sync only recent changes is enabled.</span> </br>
+				<code>""</code> <span>- Sync all per rest call (legacy mode of operation)</span>
+				<br><b>Default value:</b> <code>""</code>
+			</td>
+		</tr>
 	</tbody>
 </table>
 

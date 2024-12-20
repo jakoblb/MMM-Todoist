@@ -36,6 +36,11 @@ module.exports = NodeHelper.create({
 		var self = this;
 		//request.debug = true;
 		var acessCode = self.config.accessToken;
+		var sync_token = self.config.syncToken;
+		if(sync_token.length === 0)
+		{
+			sync_token = "*";
+		}
 		request({
 			url: self.config.apiBase + "/" + self.config.apiVersion + "/" + self.config.todoistEndpoint + "/",
 			method: "POST",
@@ -45,7 +50,7 @@ module.exports = NodeHelper.create({
 				"Authorization": "Bearer " + acessCode
 			},
 			form: {
-				sync_token: "*",
+				sync_token: self.config.syncToken,
 				resource_types: self.config.todoistResourceType
 			}
 		},
@@ -64,7 +69,6 @@ module.exports = NodeHelper.create({
 				taskJson.items.forEach((item)=>{
 					item.contentHtml = markdown.makeHtml(item.content);
 				});
-
 				taskJson.accessToken = acessCode;
 				self.sendSocketNotification("TASKS", taskJson);
 			}
@@ -79,8 +83,7 @@ module.exports = NodeHelper.create({
 		//request.debug = true;
 		var acessCode = self.config.accessToken;
 		var dateToLookbackForCompleted = new Date(Date.now() - self.config.maksCompletedAgeDays * 24 * 60 * 60 * 1000);
-		var dateString = dateToLookbackForCompleted.getFullYear()+"-"+String(dateToLookbackForCompleted.getMonth()+1).padStart(2, '0')+"-"+String(dateToLookbackForCompleted.getDate()).padStart(2, '0')+"T00:00:01.000000Z";
-		console.log(dateString);
+		var dateString = dateToLookbackForCompleted.getFullYear()+"-"+String(dateToLookbackForCompleted.getMonth()+1).padStart(2, '0')+"-"+String(dateToLookbackForCompleted.getDate()).padStart(2, '0')+"T00:00:00.000000Z";
 		request({
 			url: self.config.apiBase + "/" + self.config.apiVersion + "/" + self.config.todoistEndpointCompleted + "/",
 			method: "POST",
