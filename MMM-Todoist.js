@@ -89,6 +89,7 @@ Module.register("MMM-Todoist", {
 		apiVersion: "v9",
 		apiBase: "https://todoist.com/API",
 		todoistEndpoint: "sync",
+		syncToken: "*",
 		todoistEndpointCompleted: "completed/get_all",
 
 		todoistResourceType: "[\"items\", \"projects\", \"collaborators\", \"user\", \"labels\", \"completed_info\", \"user_plan_limits\"]",
@@ -233,6 +234,7 @@ Module.register("MMM-Todoist", {
 	// ******** Data sent from the Backend helper. This is the data from the Todoist API ************
 	socketNotificationReceived: function (notification, payload) {
 		if (notification === "TASKS") {
+			this.config.syncToken = payload.sync_token;
 			this.filterTodoistData(payload);
 
 			if (this.config.displayLastUpdate) {
@@ -242,13 +244,18 @@ Module.register("MMM-Todoist", {
 
 			if(this.config.displayCompleted)
 			{
-				if(payload.user_plan_limits.current.completed_tasks)
+				// Since we do partial sync, we should only assume new completed tasks if sync token changes and thus completed tasks does as well
+				// TODO: Check what happens in case we 
+				if(payload.user_plan_limits.current.completed_tasks && payload.items.length > 0)
 				{
 					this.sendSocketNotification("CHECK_COMPLETED", this.config);
 				}
 				else
 				{
-					Log.error("Todoist Error. Users plan does not allow to check for completed items: " + payload.user_plan_limits.current.plan_name);
+					if(payload.items.length == 0)
+					{
+						Log.error("Todoist Error. Users plan does not allow to check for completed items: " + payload.user_plan_limits.current.plan_name);
+					}
 					this.loaded = true;
 					this.updateDom(1000);
 				}
@@ -283,7 +290,28 @@ Module.register("MMM-Todoist", {
 		if (tasks.items == undefined) {
 			return;
 		}
-
+		Log.log(tasks.full_sync);
+		Log.log(tasks.items);
+		if (!tasks.full_sync)
+		{
+			if(self.tasks.items != undefined)
+			{
+				items = self.tasks.items;
+				/*tasks.items.forEach(updatedItem => {
+					if(task.checked)
+					{
+						var itemIndex = items.find(item => item.id == updatedItem.id);
+						if(itemIndex != undefined)
+						{
+							checkedItem = items[itemIndex];
+							if(itemIndex != (items.length - 1))
+							items.splice
+						}
+					}
+	
+				});*/
+			}
+		}
 		if (this.config.blacklistProjects) {
 			// take all projects in payload, and remove the ones specified by user
 			// i.e., convert user's "whitelist" into a "blacklist"
@@ -395,9 +423,6 @@ Module.register("MMM-Todoist", {
 			break;
 		}
 
-		//Slice by max Entries
-		items = items.slice(0, this.config.maximumEntries);
-
 		this.tasks = {
 			"items": items,
 			"projects": tasks.projects,
@@ -467,8 +492,6 @@ Module.register("MMM-Todoist", {
 				self.sanitizeDate(item.item_object);
 				self.tasks.items.push(item.item_object);
 			});
-			//Slice by max Entries
-			this.tasks.items = this.tasks.items.slice(0, this.config.maximumEntries);
 		}
 	},
 
@@ -715,7 +738,10 @@ Module.register("MMM-Todoist", {
 		if (this.config.hideWhenEmpty && this.tasks.items.length===0) {
 			return null;
 		}
-	
+
+		//Slice by max Entries
+		var truncatedItems = this.tasks.items.slice(0, this.config.maximumEntries);
+
 		//Add a new div to be able to display the update time alone after all the task
 		var wrapper = document.createElement("div");
 
@@ -746,7 +772,7 @@ Module.register("MMM-Todoist", {
 		}
 
 		//Iterate through Todos
-		this.tasks.items.forEach(item => {
+		truncatedItems.forEach(item => {
 			var divRow = document.createElement("div");
 			//Add the Row
 			divRow.className = "divTableRow";

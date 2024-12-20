@@ -36,6 +36,7 @@ module.exports = NodeHelper.create({
 		var self = this;
 		//request.debug = true;
 		var acessCode = self.config.accessToken;
+		console.log("Sync token: " + self.config.syncToken);
 		request({
 			url: self.config.apiBase + "/" + self.config.apiVersion + "/" + self.config.todoistEndpoint + "/",
 			method: "POST",
@@ -45,7 +46,7 @@ module.exports = NodeHelper.create({
 				"Authorization": "Bearer " + acessCode
 			},
 			form: {
-				sync_token: "*",
+				sync_token: self.config.syncToken,
 				resource_types: self.config.todoistResourceType
 			}
 		},
@@ -64,7 +65,7 @@ module.exports = NodeHelper.create({
 				taskJson.items.forEach((item)=>{
 					item.contentHtml = markdown.makeHtml(item.content);
 				});
-
+				console.log("Returning " + taskJson.items.length + " items");
 				taskJson.accessToken = acessCode;
 				self.sendSocketNotification("TASKS", taskJson);
 			}
