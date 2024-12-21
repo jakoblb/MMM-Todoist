@@ -52,11 +52,12 @@ Module.register("MMM-Todoist", {
 		displayTasksWithinDays: -1, // If >= 0, do not print tasks with a due date more than this number of days into the future (e.g., 0 prints today and overdue)
 		// 2019-12-31 by thyed
 		displaySubtasks: true, // set to false to exclude subtasks
-		displayCompleted: true,
 		displayAvatar: false,
-		// New config from JakobLB
+		// december 2024 by JakobLB
 		displayCompleted: true,
 		maksCompletedAgeDays: 14,//number of days to look back for completed tasks
+		sortTypeStrict: false, // Whether subtasks will stay under their parents task even if the priority is different
+		deprioritizeCompleted: true,
 		// Other
 		showProject: true,
 		// projectColors: ["#95ef63", "#ff8581", "#ffc471", "#f9ec75", "#a8c8e4", "#d2b8a3", "#e2a8e4", "#cccccc", "#fb886e",
@@ -87,6 +88,8 @@ Module.register("MMM-Todoist", {
 			48:'#b8b8b8',
 			49:'#ccac93'
 		},
+
+		syncToken: "*", // Allows for optimized performance by ensuring an update procedure only runs if server returns new data. Can be disabled by setting to empty string
 
 		//This has been designed to use the Todoist Sync API.
 		apiVersion: "v9",
@@ -133,6 +136,12 @@ Module.register("MMM-Todoist", {
 				this.config.projects = this.config.lists;
 			}
 		}
+
+		this.tasks = {
+			"items": [],
+			"projects": [],
+			"collaborators": [],
+		};
 
 		// keep track of user's projects list (used to build the "whitelist")
 		this.userList = typeof this.config.projects !== "undefined" ?
@@ -236,22 +245,38 @@ Module.register("MMM-Todoist", {
 	// ******** Data sent from the Backend helper. This is the data from the Todoist API ************
 	socketNotificationReceived: function (notification, payload) {
 		if (notification === "TASKS") {
+			this.config.syncToken = payload.sync_token;
 			this.filterTodoistData(payload);
 
 			if (this.config.displayLastUpdate) {
 				this.lastUpdate = Date.now() / 1000; //save the timestamp of the last update to be able to display it
 				Log.log("ToDoIst update OK, project : " + this.config.projects + " at : " + moment.unix(this.lastUpdate).format(this.config.displayLastUpdateFormat)); //AgP
 			}
-
-			if(this.config.displayCompleted)
+			if(payload.full_sync)
 			{
-				if(payload.user_plan_limits.current.completed_tasks)
+				if(this.config.displayCompleted)
 				{
-					this.sendSocketNotification("CHECK_COMPLETED", this.config);
+					// Since we do partial sync, we should only assume new completed tasks if sync token changes and thus completed tasks does as well
+					// TODO: Check what happens in case we 
+					if(payload.user_plan_limits.current != undefined &&
+						payload.user_plan_limits.current.completed_tasks && 
+						payload.items.length > 0)
+					{
+						this.sendSocketNotification("CHECK_COMPLETED", this.config);
+					}
+					else
+					{
+						if(payload.user_plan_limits.current != undefined &&
+							!payload.user_plan_limits.current.completed_tasks)
+						{
+							Log.error("Todoist Error. Users plan does not allow to check for completed items: " + payload.user_plan_limits.current.plan_name);
+						}
+						this.loaded = true;
+						this.updateDom(1000);
+					}
 				}
 				else
 				{
-					Log.error("Todoist Error. Users plan does not allow to check for completed items: " + payload.user_plan_limits.current.plan_name);
 					this.loaded = true;
 					this.updateDom(1000);
 				}
@@ -286,16 +311,20 @@ Module.register("MMM-Todoist", {
 		if (tasks.items == undefined) {
 			return;
 		}
+		if(this.tasks.items == undefined)
+		{
+			return;
+		}
 
 		if (this.config.blacklistProjects) {
 			// take all projects in payload, and remove the ones specified by user
 			// i.e., convert user's "whitelist" into a "blacklist"
 			this.config.projects = [];
 			tasks.projects.forEach(project => {
-				if(this.userList.includes(project.id)) {
+				if(self.userList.includes(project.id)) {
 					return; // blacklisted
 				}
-				this.config.projects.push(project.id);
+				self.config.projects.push(project.id);
 			});
 			if(self.config.debug) {
 				console.log("MMM-Todoist: original list of projects was blacklisted.\n" +
@@ -303,6 +332,43 @@ Module.register("MMM-Todoist", {
 				console.log(this.config.projects);
 			}
 		}
+		items = self.filterByLabelAndProject(tasks, items);
+
+		// Used for ordering by date
+		items.forEach(function (item) {
+			self.sanitizeDate(item);
+		});
+
+		// We just copy the old data to rerun the filtering even if nothing new is coming from the server
+		// this should ensure that i.e. due dates will be updated even though no new tasks has been created
+		if (!tasks.full_sync)
+		{
+			items = self.mergeAndUpdateItems(tasks, items);
+		}
+		else
+		{
+			self.tasks.items = [];
+			self.tasks.projects = tasks.projects;
+			self.collaborators = tasks.collaborators;
+			items.forEach(item => {
+				if(item.parent_id == null)
+				{
+					self.tasks.items.push({parent: item, children: []});
+				}
+				else
+				{
+					for(let ii = 0; ii < self.tasks.items.length; ii++)
+					{
+						if(self.tasks.items[ii].parent.id == item.parent_id)
+						{
+							self.tasks.items[ii].children.push(item);
+						}
+					}
+				}
+			});
+			items = self.tasks.items;
+		}
+
 		/* Not needed for labels, but kept for reuse elsewhere
 		// Loop through labels fetched from API and find corresponding label IDs for task filtering
 		// Could be re-used for project names -> project IDs.
@@ -317,23 +383,78 @@ Module.register("MMM-Todoist", {
 			}
 		}
 		*/
-		if (self.config.displayTasksWithinDays > -1 || !self.config.displayTasksWithoutDue) {
-			tasks.items = tasks.items.filter(function (item) {
-				if (item.due === null) {
-					return self.config.displayTasksWithoutDue;
+		// We rely on the fact that a parent due date should always be later than any childs
+		if (self.config.displayTasksWithinDays > -1 || !self.config.displayTasksWithoutDue)
+		{
+			items.filter(function(item) {
+				if(item.parent.due === null)
+				{
+					if(!self.config.displayTasksWithoutDue)
+					{
+						return false;
+					}
 				}
-
-				var oneDay = 24 * 60 * 60 * 1000;
-				var dueDateTime = self.parseDueDate(item.due.date);
-				var dueDate = new Date(dueDateTime.getFullYear(), dueDateTime.getMonth(), dueDateTime.getDate());
-				var now = new Date();
-				var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-				var diffDays = Math.floor((dueDate - today) / (oneDay));
-				return diffDays <= self.config.displayTasksWithinDays;
+				else
+				{
+					return self.taskIsDue(item.parent.due.date, self.config.displayTasksWithinDays)
+				}
 			});
 		}
 
-		//Filter the Todos by the criteria specified in the Config
+		if(self.config.displaySubtasks)
+		{
+			items.forEach(item => {
+				if(item.children.length > 0)
+				{
+					item.children.filter(function(item){
+						if(item.completed_at != null)
+						{
+							return self.taskIsDue(self.parseDueDate(item.completed_at), self.config.maksCompletedAgeDays);
+						}
+						else
+						{
+							return true;
+						}
+					});
+				}
+			});
+		}
+
+		//**** FOR DEBUGGING TO HELP PEOPLE GET THEIR PROJECT IDs */
+		if (self.config.debug) {
+			console.log("%c *** PROJECT -- ID ***", "background: #222; color: #bada55");
+			tasks.projects.forEach(project => {
+				console.log("%c" + project.name + " -- " + project.id, "background: #222; color: #bada55");
+			});
+		};
+
+		//***** Sorting code if you want to add new methods. */
+		switch (self.config.sortType) {
+		case "todoist":
+			self.tasks.items = self.sortByTodoist(items);
+			break;
+		case 'priority':
+			self.tasks.items = self.sortByPriority(items);
+			break;
+		case "dueDateAsc":
+			self.tasks.items = self.sortByDueDateAsc(items);
+			break;
+		case "dueDateDesc":
+			self.tasks.items = self.sortByDueDateDesc(items);
+			break;
+		case "dueDateDescPriority":
+			self.tasks.items = self.sortByDueDateDescPriority(items);
+			break;
+		default:
+			self.tasks.items = self.sortByTodoist(items);
+			break;
+		}
+	},
+	filterByLabelAndProject: function(tasks, items)
+	{
+		self = this;
+		// Filter the Todos by the criteria specified in the Config
+		// We assume that children will inherit their parents label/project
 		tasks.items.forEach(function (item) {
 			// Ignore sub-tasks
 			if (item.parent_id!=null && !self.config.displaySubtasks) { return; }
@@ -361,57 +482,78 @@ Module.register("MMM-Todoist", {
 			  });
 			}
 		});
-
-		//**** FOR DEBUGGING TO HELP PEOPLE GET THEIR PROJECT IDs */
-		if (self.config.debug) {
-			console.log("%c *** PROJECT -- ID ***", "background: #222; color: #bada55");
-			tasks.projects.forEach(project => {
-				console.log("%c" + project.name + " -- " + project.id, "background: #222; color: #bada55");
-			});
-		};
-		//****** */
-
-		//Used for ordering by date
-		items.forEach(function (item) {
-			self.sanitizeDate(item);
-		});
-
-		//***** Sorting code if you want to add new methods. */
-		switch (self.config.sortType) {
-		case "todoist":
-			sorteditems = self.sortByTodoist(items);
-			break;
-		case 'priority':
-			sorteditems = self.sortByPriority(items);
-			break;
-		case "dueDateAsc":
-			sorteditems = self.sortByDueDateAsc(items);
-			break;
-		case "dueDateDesc":
-			sorteditems = self.sortByDueDateDesc(items);
-			break;
-		case "dueDateDescPriority":
-			sorteditems = self.sortByDueDateDescPriority(items);
-			break;
-		default:
-			sorteditems = self.sortByTodoist(items);
-			break;
-		}
-
-		//Slice by max Entries
-		items = items.slice(0, this.config.maximumEntries);
-
-		this.tasks = {
-			"items": items,
-			"projects": tasks.projects,
-			"collaborators": tasks.collaborators
-		};
-
+		return items;
 	},
-
+	mergeAndUpdateItems(tasks, items)
+	{
+		self = this;
+		tasks.projects.forEach(project => {
+			if(!self.tasks.projects.includes(projectIte => {projectIte.id == project.id}))
+			{
+				self.tasks.projects.push(project);
+			}
+		});
+		tasks.collaborators.forEach(collaborator => {
+			if(!self.tasks.collaborators.includes(collaboratorIte => {collaboratorIte.id == collaborator.id}))
+			{
+				self.tasks.collaborators.push(collaborator);
+			}
+		});
+		// Remove/insert potential completed/uncompleted tasks
+		items.forEach(item => {
+			var idToCheck = item.id;
+			if(item.parent_id != null)
+			{
+				idToCheck = item.parent_id;
+			}
+			var index = self.tasks.items.indexOf(itemToCheck => { itemToCheck.parent.id == idToCheck; });
+			if(index != -1)
+			{
+				if(item.parent_id == null)
+				{
+					self.tasks.items[index = item];
+				}
+				else
+				{
+					var subIndex = self.tasks.items[index].children.indexOf(itemToCheck => itemToCheck.id == item.id);
+					if(subIndex != -1)
+					{
+						self.tasks.items[index].children[subIndex] = item;
+					}
+					else
+					{
+						self.tasks.items[index].children.push(item);
+					}
+				}
+			}
+			else
+			{
+				if(item.parent_id == null)
+				{
+					self.tasks.items.push({parent: item, children: []});
+				}
+				else
+				{
+					Log.error("Unhandled case; updated item is not a parent and has no matching parent id - item not conisdered");
+				}
+			}
+		});
+		return self.tasks.items;
+	},
+	taskIsDue: function(date, daysBack)
+	{
+		self = this;
+		var oneDay = 24 * 60 * 60 * 1000;
+		var dueDateTime = date;//self.parseDueDate(date);
+		var dueDate = new Date(dueDateTime.getFullYear(), dueDateTime.getMonth(), dueDateTime.getDate());
+		var now = new Date();
+		var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+		var diffDays = Math.floor((dueDate - today) / (oneDay));
+		return diffDays <= daysBack;
+	},
 	parseCompletedTasks: function(completedTasks)
 	{
-		var self = this;
+		self = this;
 		var itemsNoParent = [];
 		var labelIds = [];
 		if (completedTasks == undefined) {
@@ -423,7 +565,6 @@ Module.register("MMM-Todoist", {
 		if (completedTasks.items == undefined) {
 			return;
 		}
-
 		// TODO: DO we want to include fully completed projects etc?
 		if(this.tasks != undefined)
 		{
@@ -438,40 +579,25 @@ Module.register("MMM-Todoist", {
 					if(!self.config.displaySubtasks) { return; }
 					else
 					{
-						var foundParent = false;
-						for(ii = 0; ii < self.tasks.items.length; ii++)
+						var parentIndex = self.items.indexOf(itemToCheck => itemToCheck.parent == item.item_object.parent_id);
+						if(parentIndex != -1)
 						{
-							if(self.tasks.items[ii].id == item.item_object.parent_id)
-							{
-								foundParent = true;
-							}
-							else if(foundParent)
-							{
-								// We assume that when a new parent comes the old is away
-								if(self.tasks.items[ii].parent_id == null &&
-									self.tasks.items.find(itemToCheck => itemToCheck.content == item.content) == undefined
-								)
-								{
-									self.sanitizeDate(item.item_object);
-									self.tasks.items.splice(ii, 0, item.item_object);
-									foundParent = false;
-								}
-							}
+							sanitizedObject = self.sanitizeDate(item.item_object);
+							self.items[parentIndex].children.push(sanitizedObject);
+						}
+						else
+						{
+							Log.error("Unhandled case; completed item is not a parent and has no matching parent id - item not conisdered");
 						}
 					}
 				}
 				else
 				{
 					// We always have completed at the end of the list
-					itemsNoParent.push(item);
+					var newParent = self.sanitizeDate(item.item_object);
+					self.tasks.items.push({parent: newParent, children: []});
 				}
 			});
-			itemsNoParent.forEach(function(item){
-				self.sanitizeDate(item.item_object);
-				self.tasks.items.push(item.item_object);
-			});
-			//Slice by max Entries
-			this.tasks.items = this.tasks.items.slice(0, this.config.maximumEntries);
 		}
 	},
 
@@ -522,27 +648,30 @@ Module.register("MMM-Todoist", {
 	},
 	sortByTodoist: function (itemstoSort) {
 		itemstoSort.sort(function (a, b) {
-			if (!a.parent_id && !b.parent_id) {
-				// neither have parent_id so both are parent tasks, sort by their id
-				return a.id - b.id;
-			} else if (a.parent_id === b.parent_id) {
-				// both are children of the same parent task, sort by child order
-				return a.child_order - b.child_order;
-			} else if (a.parent_id === b.id) {
-				// a is a child of b, so it goes after b
-				return 1;
-			} else if (b.parent_id === a.id) {
-				// b is a child of a, so it goes after a
-				return -1;
-			} else if (!a.parent_id) {
-				// a is a parent task, b is a child (but not of a), so compare a to b's parent
-				return a.id - b.parent_id;
-			} else if (!b.parent_id) {
-				// b is a parent task, a is a child (but not of b), so compare b to a's parent
-				return a.parent_id - b.id;
-			} else {
-				// both are child tasks, but with different parents so sort by their parents
-				return a.parent_id - b.parent_id;
+				return a.parent.id - b.parent.id;
+		});
+		itemstoSort.forEach(item => {
+			if(item.children.length > 0)
+			{
+				item.children.sort(function(a, b) {
+					
+					if(!a.completed && !b.completed)
+					{
+						return a.id - b.id;
+					}
+					else if(a.completed && b.completed)
+					{
+						return a.id - b.id;
+					}
+					else if(a.completed && !b.completed)
+					{
+						return 1
+					}
+					else if(!a.completed && b.completed)
+					{
+						return -1
+					}
+				});
 			}
 		});
 		return itemstoSort;
@@ -718,7 +847,10 @@ Module.register("MMM-Todoist", {
 		if (this.config.hideWhenEmpty && this.tasks.items.length===0) {
 			return null;
 		}
-	
+
+		//Slice by max Entries is done here for simplicity
+		var truncatedItems = this.truncateItems();
+
 		//Add a new div to be able to display the update time alone after all the task
 		var wrapper = document.createElement("div");
 
@@ -749,7 +881,8 @@ Module.register("MMM-Todoist", {
 		}
 
 		//Iterate through Todos
-		this.tasks.items.forEach(item => {
+		truncatedItems.forEach(item => {
+			if(item.parent == null) { return; }
 			var divRow = document.createElement("div");
 			//Add the Row
 			divRow.className = "divTableRow";
@@ -757,19 +890,31 @@ Module.register("MMM-Todoist", {
 			/*Log.log(item.content);
 			Log.log(item);*/
 			//Columns
-			divRow.appendChild(this.addPriorityIndicatorCell(item));
+			divRow.appendChild(this.addPriorityIndicatorCell(item.parent));
 			divRow.appendChild(this.addColumnSpacerCell());
-			divRow.appendChild(this.addTodoTextCell(item));
-			divRow.appendChild(this.addDueDateCell(item));
+			divRow.appendChild(this.addTodoTextCell(item.parent));
+			divRow.appendChild(this.addDueDateCell(item.parent));
 			if (this.config.showProject) {
 				divRow.appendChild(this.addColumnSpacerCell());
-				divRow.appendChild(this.addProjectCell(item));
+				divRow.appendChild(this.addProjectCell(item.parent));
 			}
 			if (this.config.displayAvatar) {
-				divRow.appendChild(this.addAssigneeAvatorCell(item, collaboratorsMap));
+				divRow.appendChild(this.addAssigneeAvatorCell(item.parent, collaboratorsMap));
 			}
 
 			divBody.appendChild(divRow);
+			item.children.forEach(childItem =>{
+				if(childItem == null){ return; }
+				divRow.appendChild(this.addPriorityIndicatorCell(childItem));
+				divRow.appendChild(this.addColumnSpacerCell());
+				divRow.appendChild(this.addTodoTextCell(childItem));
+				divRow.appendChild(this.addDueDateCell(childItem));
+				if (this.config.displayAvatar) {
+					divRow.appendChild(this.addAssigneeAvatorCell(childItem, collaboratorsMap));
+				}
+
+				divBody.appendChild(divRow);
+			});
 		});
 		
 		divTable.appendChild(divBody);
@@ -799,6 +944,72 @@ Module.register("MMM-Todoist", {
 		//****** */
 
 		return wrapper;
+	},
+	truncateItems: function()
+	{
+		var itemsToDisplay = [];
+		var itemsCount = 0;
+		this.tasks.items.forEach(item =>
+		{
+			if(itemsCount > this.config.maximumEntries)
+			{
+				return itemsToDisplay;
+			}
+			// TODO why is a parent null???
+			//if(item.parent === undefined) {return;}
+			if(!item.parent.checked && !this.config.deprioritizeCompleted)
+			{
+				itemsToDisplay.push({parent: item.parent, children: []});
+				itemsCount++;
+				if(item.children)
+				{
+					item.children.forEach(itemChild => {
+						if(itemsCount > this.config.maximumEntries)
+						{
+							return itemsToDisplay;
+						}
+						if(!itemChild.parent.checked && !this.config.deprioritizeCompleted)
+						{
+							itemsToDisplay.children.push(itemChild);
+							itemsCount++;
+						}
+						else
+						{
+							itemsToDisplay.children.push(null);
+						}
+					});
+				}
+			}
+			else
+			{
+				itemsToDisplay.push({parent: null, children: []});
+			}
+		});
+		if(this.config.deprioritizeCompleted)
+		{
+			for(let ii = 0; ii < itemsToDisplay.length; ii++)
+			{
+				if(itemsCount > this.config.maximumEntries)
+				{
+					return itemsToDisplay;
+				}
+				if(itemsToDisplay[ii].parent == null)
+				{
+					itemsToDisplay[ii].parent = this.tasks.items[ii].parent;
+					for(let jj = 0; jj < itemsToDisplay[ii].children.length; jj++)
+					{
+						if(itemsCount > this.config.maximumEntries)
+						{
+							return itemsToDisplay;
+						}
+						if(itemsToDisplay[ii].children[jj] == null)
+						{
+							itemsToDisplay[ii].children[jj] == this.tasks.items[ii].children[jj];
+						}
+					}
+				}
+			}
+		}
+		return itemsToDisplay;
 	}
-
 });

@@ -27,7 +27,8 @@ modules: [
 			fade: false,      
 			// projects and/or labels is mandatory, see configuration options for more details:
 			projects: [ 166564794 ], 
-			labels: [ "MagicMirror", "Important" ] // Tasks for any projects with these labels will be shown.
+			labels: [ "MagicMirror", "Important" ], // Tasks for any projects with these labels will be shown.
+			syncToken: "*" // Disabled by default (set to "") to allow for better backwards compatability, but is recommended
       }
 	}
 ]
@@ -35,8 +36,8 @@ modules: [
 
 ## Configuration options
 
-The following properties \u\bmust\b\u be configured:
-\bNote\b that label OR project is mandatory, not both and that currently label takes priority over project
+The following properties **must** be configured:<br>
+**Note** that label OR project is mandatory, not both and that currently label takes priority over project
 <table width="100%">
 	<!-- why, markdown... -->
 	<thead>
@@ -115,6 +116,13 @@ The following properties can be configured:
 				<br>
 				NB: If used in combination with <code>labels</code>, tasks that are in a blacklisted
 				project but match a label will still be shown!
+			</td>
+		</tr>
+		<tr>
+			<td><code>deprioritizeCompleted</code></td>
+			<td>In case the <code>displaySubTasks</code> and <code>displayCompleted</code> is set, this settings ensures that completed items are not shown unless the number of non-completed items are lower than the max.<br>
+				<br><b>Possible values:</b> <code>boolean</code>
+				<br><b>Default value:</b> <code>true</code>
 			</td>
 		</tr>
 		<tr>
@@ -227,6 +235,7 @@ The following properties can be configured:
 		<tr>
 			<td><code>sortType</code></td>
 			<td>This will determine the sorting method used when displaying your Todos.<br>
+			<strong>Note</strong> Some sorts other than <code>todoist</code> may behave strangely with subtasks if <code>sortTypeStrict</code> is not set <strong>false</strong>.<br>
 				<br><b>Possible values:</b> <br />
 				<code>"todoist"</code> <span>- Sort based on the order in Todoist.</span> </br >
 				<code>"priority"</code> <span>- Sort based on the priority, in Descending order. (Highest priority first)</span> </br >
@@ -234,6 +243,23 @@ The following properties can be configured:
 				<code>"dueDateDesc"</code> <span>- Sort based on the Due Date of the Todo Descending. (Newest date first)</span></br>
 				<code>"dueDateDescPriority"</code> <span>- Sort based on the Due Date of the Todo Descending and by priority high to low.</span></br>
 				<br><b>Default value:</b> <code>"todoist"</code>
+			</td>
+		</tr>
+				<tr>
+			<td><code>sortTypeStrict</code></td>
+			<td>If true this will sort also subtasks based on priority which can lead to strange behavior. This setting is mainly here to maintain legacy operation with new subtask functionality.<br>
+				<br><b>Possible values:</b> <code>boolean</code>
+				<br><b>Default value:</b> <code>false</code>
+			</td>
+		</tr>
+		<tr>
+			<td><code>syncToken</code></td>
+			<td>Implementation of the syncToken now allowes for the API to only return new entries (including completed entries).<br>
+				Sync token usage can be enabled by setting this value to an empty string and MMM-Todoist will get all entries from the server for each API call (legacy mode of operation)<br>
+				<br><b>Possible values:</b><br>
+				<code>"*"</code> <span>- Sync only recent changes is enabled.</span> </br>
+				<code>""</code> <span>- Sync all per rest call (legacy mode of operation)</span>
+				<br><b>Default value:</b> <code>""</code>
 			</td>
 		</tr>
 		<tr>
