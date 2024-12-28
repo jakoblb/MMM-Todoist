@@ -591,8 +591,8 @@ Module.register("MMM-Todoist", {
 						var parentIndex = self.items.findIndex(itemToCheck => itemToCheck.parent == item.item_object.parent_id);
 						if(parentIndex != -1)
 						{
-							sanitizedObject = self.sanitizeDate(item.item_object);
-							self.items[parentIndex].children.push(sanitizedObject);
+							self.sanitizeDate(item.item_object);
+							self.tasks.items[parentIndex].children.push(sanitizedObject);
 						}
 						else
 						{
@@ -603,8 +603,8 @@ Module.register("MMM-Todoist", {
 				else
 				{
 					// We always have completed at the end of the list
-					var newParent = self.sanitizeDate(item.item_object);
-					self.tasks.items.push({parent: newParent, children: []});
+					self.sanitizeDate(item.item_object);
+					self.tasks.items.push({parent: item.item_object, children: []});
 				}
 			});
 		}
@@ -748,10 +748,12 @@ Module.register("MMM-Todoist", {
 		var taskText = para[0].innerHTML;
 
 		var cellClasses = "title bright alignLeft";
+		var antiWrapSubtraction = 0;
 		// if sorting by todoist, indent subtasks under their parents
 		if (this.config.sortType === "todoist" && item.parent_id) {
 			// this item is a subtask so indent it
 			taskText = '- ' + taskText;
+			antiWrapSubtraction += 2;
 		}
 		
 		if(item.checked)
@@ -761,10 +763,10 @@ Module.register("MMM-Todoist", {
 		var maxTitleLength = this.config.maxTitleLength;
 		if(true)
 		{
-			maxTitleLength -= preparedContent.innerHTML.length;
+			antiWrapSubtraction += preparedContent.innerHTML.length;
 		}
 		return this.createCell(cellClasses, 
-			this.shorten(taskText, maxTitleLength, this.config.wrapEvents));
+			this.shorten(taskText, (this.config.maxTitleLength - antiWrapSubtraction), this.config.wrapEvents));
 
 		// return this.createCell("title bright alignLeft", item.content);
 	},
@@ -920,16 +922,20 @@ Module.register("MMM-Todoist", {
 			}
 
 			divBody.appendChild(divRow);
+
 			item.children.forEach(childItem =>{
 				if(childItem == null){ return; }
-				divRow.appendChild(this.addPriorityIndicatorCell(childItem));
-				divRow.appendChild(this.addColumnSpacerCell());
-				divRow.appendChild(this.addTodoTextCell(childItem));
+				var childDivRow = document.createElement("div");
+				//Add the Row
+				childDivRow.className = "divTableRow";
+				childDivRow.appendChild(this.addPriorityIndicatorCell(childItem));
+				childDivRow.appendChild(this.addColumnSpacerCell());
+				childDivRow.appendChild(this.addTodoTextCell(childItem, {innerHTML: "", className: ""}));
 				if (this.config.displayAvatar) {
-					divRow.appendChild(this.addAssigneeAvatorCell(childItem, collaboratorsMap));
+					childDivRow.appendChild(this.addAssigneeAvatorCell(childItem, collaboratorsMap));
 				}
 
-				divBody.appendChild(divRow);
+				divBody.appendChild(childDivRow);
 			});
 		});
 		
@@ -963,64 +969,83 @@ Module.register("MMM-Todoist", {
 	},
 	truncateItems: function()
 	{
+		self = this;
+		var maximumEntries = this.config.maximumEntries;
+		var displayCompleted = this.config.displayCompleted;
+		var deprioritizeCompleted = this.config.deprioritizeCompleted;
 		var itemsToDisplay = [];
 		var itemsCount = 0;
 		this.tasks.items.forEach(item =>
 		{
-			if(itemsCount > this.config.maximumEntries)
+			if(itemsCount > maximumEntries)
 			{
 				return itemsToDisplay;
 			}
 			// TODO why is a parent null???
 			//if(item.parent === undefined) {return;}
-			if(!item.parent.checked && !this.config.deprioritizeCompleted)
+			if(!item.parent.checked)
 			{
 				itemsToDisplay.push({parent: item.parent, children: []});
 				itemsCount++;
-				if(item.children)
-				{
-					item.children.forEach(itemChild => {
-						if(itemsCount > this.config.maximumEntries)
+				lastItemToDisplayIndex = itemsToDisplay.length-1;
+				item.children.forEach(itemChild => {
+					if(itemsCount > maximumEntries)
+					{
+						return itemsToDisplay;
+					}
+					if(!itemChild.checked)
+					{
+						itemsToDisplay[lastItemToDisplayIndex].children.push(itemChild);
+						itemsCount++;
+					}
+					else
+					{
+						if(deprioritizeCompleted)
 						{
-							return itemsToDisplay;
-						}
-						if(!itemChild.parent.checked && !this.config.deprioritizeCompleted)
-						{
-							itemsToDisplay.children.push(itemChild);
+							itemsToDisplay[lastItemToDisplayIndex].children.push(itemChild);
 							itemsCount++;
 						}
 						else
 						{
-							itemsToDisplay.children.push(null);
+							itemsToDisplay[lastItemToDisplayIndex].children.push(null);
 						}
-					});
+					}
+				});
+			}
+			else if(displayCompleted)
+			{
+				if(deprioritizeCompleted)
+				{
+					itemsToDisplay.push({parent: null, children: []});	
+				}
+				else
+				{
+					itemsToDisplay.push({parent: item, children: []});	
 				}
 			}
-			else
-			{
-				itemsToDisplay.push({parent: null, children: []});
-			}
 		});
-		if(this.config.deprioritizeCompleted)
+		if(deprioritizeCompleted && displayCompleted)
 		{
 			for(let ii = 0; ii < itemsToDisplay.length; ii++)
 			{
-				if(itemsCount > this.config.maximumEntries)
+				if(itemsCount > maximumEntries)
 				{
 					return itemsToDisplay;
 				}
 				if(itemsToDisplay[ii].parent == null)
 				{
-					itemsToDisplay[ii].parent = this.tasks.items[ii].parent;
+					itemsToDisplay[ii].parent = self.tasks.items[ii].parent;
+					itemsCount++;
 					for(let jj = 0; jj < itemsToDisplay[ii].children.length; jj++)
 					{
-						if(itemsCount > this.config.maximumEntries)
+						if(itemsCount > maximumEntries)
 						{
 							return itemsToDisplay;
 						}
 						if(itemsToDisplay[ii].children[jj] == null)
 						{
-							itemsToDisplay[ii].children[jj] == this.tasks.items[ii].children[jj];
+							itemsToDisplay[ii].children[jj] == self.tasks.items[ii].children[jj];
+							itemsCount++;
 						}
 					}
 				}
