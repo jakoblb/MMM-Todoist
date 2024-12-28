@@ -357,13 +357,22 @@ Module.register("MMM-Todoist", {
 				}
 				else
 				{
-					for(let ii = 0; ii < self.tasks.items.length; ii++)
+					var index = self.tasks.items.findIndex(childToCheck => childToCheck.parent.id == item.parent_id)
+					if(index != -1)
+					{
+						self.tasks.items[index].children.push(item);
+					}
+					else
+					{
+						Log.error("Unhandled case; full sync item is not a parent and has no matching parent id - item not conisdered");
+					}
+					/*for(let ii = 0; ii < self.tasks.items.length; ii++)
 					{
 						if(self.tasks.items[ii].parent.id == item.parent_id)
 						{
 							self.tasks.items[ii].children.push(item);
 						}
-					}
+					}*/
 				}
 			});
 			items = self.tasks.items;
@@ -506,16 +515,16 @@ Module.register("MMM-Todoist", {
 			{
 				idToCheck = item.parent_id;
 			}
-			var index = self.tasks.items.indexOf(itemToCheck => { itemToCheck.parent.id == idToCheck; });
+			var index = self.tasks.items.findIndex(itemToCheck => itemToCheck.parent.id == idToCheck);
 			if(index != -1)
 			{
 				if(item.parent_id == null)
 				{
-					self.tasks.items[index = item];
+					self.tasks.items[index].parent = item;
 				}
 				else
 				{
-					var subIndex = self.tasks.items[index].children.indexOf(itemToCheck => itemToCheck.id == item.id);
+					var subIndex = self.tasks.items[index].children.findIndex(itemToCheck => itemToCheck.id == item.id);
 					if(subIndex != -1)
 					{
 						self.tasks.items[index].children[subIndex] = item;
@@ -579,7 +588,7 @@ Module.register("MMM-Todoist", {
 					if(!self.config.displaySubtasks) { return; }
 					else
 					{
-						var parentIndex = self.items.indexOf(itemToCheck => itemToCheck.parent == item.item_object.parent_id);
+						var parentIndex = self.items.findIndex(itemToCheck => itemToCheck.parent == item.item_object.parent_id);
 						if(parentIndex != -1)
 						{
 							sanitizedObject = self.sanitizeDate(item.item_object);
@@ -731,7 +740,7 @@ Module.register("MMM-Todoist", {
 	addColumnSpacerCell: function() {
 		return this.createCell("spacerCell", "&nbsp;");
 	},
-	addTodoTextCell: function(item) {
+	addTodoTextCell: function(item, preparedContent) {
 		var temp = document.createElement('div');
 		temp.innerHTML = item.contentHtml;
 
@@ -749,16 +758,24 @@ Module.register("MMM-Todoist", {
 		{
 			cellClasses += " todoCompleted";
 		}
-
+		var maxTitleLength = this.config.maxTitleLength;
+		if(true)
+		{
+			maxTitleLength -= preparedContent.innerHTML.length;
+		}
 		return this.createCell(cellClasses, 
-			this.shorten(taskText, this.config.maxTitleLength, this.config.wrapEvents));
+			this.shorten(taskText, maxTitleLength, this.config.wrapEvents));
 
 		// return this.createCell("title bright alignLeft", item.content);
 	},
-	addDueDateCell: function(item) {
-		var className = "bright align-right dueDate ";
+	addDueDateCell: function(item, preparedContent) {
+		return this.createCell(preparedContent.className, preparedContent.innerHTML);
+	},
+	prepareDueDateCell: function(item)
+	{
 		var innerHTML = "";
-		
+		var className = "bright align-right dueDate ";
+
 		var oneDay = 24 * 60 * 60 * 1000;
 		var dueDateTime = this.parseDueDate(item.due.date);
 		var dueDate = new Date(dueDateTime.getFullYear(), dueDateTime.getMonth(), dueDateTime.getDate());
@@ -804,7 +821,6 @@ Module.register("MMM-Todoist", {
 			}) + " " + dueDate.getDate() + " " + dueDate.getFullYear();
 			className += "xsmall";
 		}
-
 		if (innerHTML !== "" && !item.all_day) {
 			function formatTime(d) {
 				function z(n) {
@@ -820,7 +836,7 @@ Module.register("MMM-Todoist", {
 			}
 			innerHTML += formatTime(dueDateTime);
 		}
-		return this.createCell(className, innerHTML);
+		return {innerHTML: innerHTML, className: className};
 	},
 	addProjectCell: function(item) {
 		var project = this.tasks.projects.find(p => p.id === item.project_id);
@@ -892,8 +908,9 @@ Module.register("MMM-Todoist", {
 			//Columns
 			divRow.appendChild(this.addPriorityIndicatorCell(item.parent));
 			divRow.appendChild(this.addColumnSpacerCell());
-			divRow.appendChild(this.addTodoTextCell(item.parent));
-			divRow.appendChild(this.addDueDateCell(item.parent));
+			var preparedDueDateContent = this.prepareDueDateCell(item.parent);
+			divRow.appendChild(this.addTodoTextCell(item.parent, preparedDueDateContent));
+			divRow.appendChild(this.addDueDateCell(item.parent, preparedDueDateContent));
 			if (this.config.showProject) {
 				divRow.appendChild(this.addColumnSpacerCell());
 				divRow.appendChild(this.addProjectCell(item.parent));
@@ -908,7 +925,6 @@ Module.register("MMM-Todoist", {
 				divRow.appendChild(this.addPriorityIndicatorCell(childItem));
 				divRow.appendChild(this.addColumnSpacerCell());
 				divRow.appendChild(this.addTodoTextCell(childItem));
-				divRow.appendChild(this.addDueDateCell(childItem));
 				if (this.config.displayAvatar) {
 					divRow.appendChild(this.addAssigneeAvatorCell(childItem, collaboratorsMap));
 				}
