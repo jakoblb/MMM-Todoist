@@ -58,6 +58,7 @@ Module.register("MMM-Todoist", {
 		maksCompletedAgeDays: 14,//number of days to look back for completed tasks
 		sortTypeStrict: false, // Whether subtasks will stay under their parents task even if the priority is different
 		deprioritizeCompleted: true,
+		broadcastMode: "none", // Multiple lists optimisation - can be "none", "receive", or "broadcast"
 		// Other
 		showProject: true,
 		// projectColors: ["#95ef63", "#ff8581", "#ffc471", "#f9ec75", "#a8c8e4", "#d2b8a3", "#e2a8e4", "#cccccc", "#fb886e",
@@ -99,6 +100,9 @@ Module.register("MMM-Todoist", {
 
 		todoistResourceType: "[\"items\", \"projects\", \"collaborators\", \"user\", \"labels\", \"completed_info\", \"user_plan_limits\"]",
 
+		externalModulesConfig: {},
+		broadCastTaskPayload: null,
+
 		debug: false
 	},
 
@@ -125,11 +129,6 @@ Module.register("MMM-Todoist", {
 		this.title = "Loading...";
 		this.loaded = false;
 
-		if (this.config.accessToken === "") {
-			Log.error("MMM-Todoist: AccessToken not set!");
-			return;
-		}
-
 		//Support legacy properties
 		if (this.config.lists !== undefined) {
 			if (this.config.lists.length > 0) {
@@ -138,21 +137,25 @@ Module.register("MMM-Todoist", {
 		}
 
 		this.tasks = {
-			"items": [],
-			"projects": [],
-			"collaborators": [],
+			items: [],
+			projects: [],
+			collaborators: [],
 		};
+
+		if (this.config.broadcastMode !== "receive" &&
+			(!this.config.accessToken || this.config.accessToken === "")) {
+			Log.error("MMM-Todoist: AccessToken not set and broadcast mode is " + this.config.broadcastMode + "!");
+			return;
+		}
 
 		// keep track of user's projects list (used to build the "whitelist")
 		this.userList = typeof this.config.projects !== "undefined" ?
 			JSON.parse(JSON.stringify(this.config.projects)) : [];
-
-		this.sendSocketNotification("FETCH_TODOIST", this.config);
-
-		//add ID to the setInterval function to be able to stop it later on
-		this.updateIntervalID = setInterval(function () {
-			self.sendSocketNotification("FETCH_TODOIST", self.config);
-		}, this.config.updateInterval);
+		// We only do broadcast when all modules are started. Rx does not start at all
+		if(this.config.broadcastMode === "none")
+		{
+			this.fetchAndSetUpdate()
+		}
 	},
 
 	suspend: function () { //called by core system when the module is not displayed anymore on the screen
@@ -166,12 +169,71 @@ Module.register("MMM-Todoist", {
 		//Log.log("Fct resume - ModuleHidden = " + ModuleHidden);
 		this.GestionUpdateIntervalToDoIst();
 	},
+	fetchAndSetUpdate: function() 
+	{
+		var self = this;
+		this.sendSocketNotification("FETCH_TODOIST", this.config);
 
+		//add ID to the setInterval function to be able to stop it later on
+		this.updateIntervalID = setInterval(function () {
+			self.sendSocketNotification("FETCH_TODOIST", self.config);
+		}, this.config.updateInterval);
+	},
 	notificationReceived: function (notification, payload) {
+		var self = this;
 		if (notification === "USER_PRESENCE") { // notification sended by module MMM-PIR-Sensor. See its doc
 			//Log.log("Fct notificationReceived USER_PRESENCE - payload = " + payload);
 			UserPresence = payload;
 			this.GestionUpdateIntervalToDoIst();
+		}  else if(notification === "TODOIST_BROADCAST" && this.config.broadcastMode == "receive")
+		{
+			this.filterTodoistData(payload.tasksPayload);
+
+			if (this.config.displayLastUpdate) {
+				this.lastUpdate = Date.now() / 1000; //save the timestamp of the last update to be able to display it
+				if(this.config.debug)
+				{
+					Log.log("ToDoIst received broadcast update OK, project : " + this.config.projects + " at : " + moment.unix(this.lastUpdate).format(this.config.displayLastUpdateFormat)); //AgP
+				}
+			}
+			if(payload.completedPayload != null)
+			{
+				this.parseCompletedTasks(payload.completedPayload);
+			}
+			this.loaded = true;
+			this.updateDom();
+		}
+		else if (notification === "ALL_MODULES_STARTED")
+		{
+			if(this.config.broadcastMode === "broadcast")
+			{
+				var anyConfigUpdated = false;
+				MM.getModules().withClass("MMM-Todoist").forEach(todoist => {
+					if(todoist.identifier !== self.identifier)
+					{
+						if(todoist.config.maksCompletedAgeDays > self.config.maksCompletedAgeDays)
+						{
+							if(self.externalModulesConfig.maksCompletedAgeDays)
+							{
+								if(self.externalModulesConfig.maksCompletedAgeDays > todoist.config.maksCompletedAgeDays)
+								{
+									self.externalModulesConfig.maksCompletedAgeDays = todoist.config.maksCompletedAgeDays;
+									anyConfigUpdated = true;
+								}
+							}
+							else
+							{
+								self.externalModulesConfig.maksCompletedAgeDays = todoist.config.maksCompletedAgeDays;
+								anyConfigUpdated = true;
+							}
+						}
+					}
+				});
+				if(anyConfigUpdated)
+				{
+					this.fetchAndSetUpdate();
+				}
+			}
 		}
 	},
 
@@ -179,15 +241,9 @@ Module.register("MMM-Todoist", {
 		if (UserPresence === true && this.ModuleToDoIstHidden === false) {
 			var self = this;
 
-			// update now
-			this.sendSocketNotification("FETCH_TODOIST", this.config);
-
-			//if no IntervalID defined, we set one again. This is to avoid several setInterval simultaneously
-			if (this.updateIntervalID === 0) {
-
-				this.updateIntervalID = setInterval(function () {
-					self.sendSocketNotification("FETCH_TODOIST", self.config);
-				}, this.config.updateInterval);
+			if(this.config.broadcastMode === "none" || this.config.broadcastMode === "broadcast")
+			{
+				this.fetchAndSetUpdate();
 			}
 
 		} else { //if (UserPresence = false OR ModuleHidden = true)
@@ -246,12 +302,8 @@ Module.register("MMM-Todoist", {
 	socketNotificationReceived: function (notification, payload) {
 		if (notification === "TASKS") {
 			this.config.syncToken = payload.sync_token;
-			this.filterTodoistData(payload);
-
-			if (this.config.displayLastUpdate) {
-				this.lastUpdate = Date.now() / 1000; //save the timestamp of the last update to be able to display it
-				Log.log("ToDoIst update OK, project : " + this.config.projects + " at : " + moment.unix(this.lastUpdate).format(this.config.displayLastUpdateFormat)); //AgP
-			}
+			// This is a minor optimisation that allows us to brroadcast data before working on the local filtering in case we do not run the CHECK_COMPLETED
+			requestCheckCompleted = false;
 			if(payload.full_sync)
 			{
 				if(this.config.displayCompleted)
@@ -262,7 +314,7 @@ Module.register("MMM-Todoist", {
 						payload.user_plan_limits.current.completed_tasks && 
 						payload.items.length > 0)
 					{
-						this.sendSocketNotification("CHECK_COMPLETED", this.config);
+						requestCheckCompleted = true;
 					}
 					else
 					{
@@ -271,27 +323,44 @@ Module.register("MMM-Todoist", {
 						{
 							Log.error("Todoist Error. Users plan does not allow to check for completed items: " + payload.user_plan_limits.current.plan_name);
 						}
-						this.loaded = true;
-						this.updateDom(1000);
 					}
+				}
+			}
+			if(this.config.broadcastMode === "broadcast")
+			{
+				if(!requestCheckCompleted)
+				{
+					this.sendNotification("TODOIST_BROADCAST", payload);
 				}
 				else
 				{
-					this.loaded = true;
-					this.updateDom(1000);
+					this.config.broadCastTaskPayload = payload;
 				}
 			}
-			else
-			{
-				this.loaded = true;
-				this.updateDom(1000);
+			this.filterTodoistData(payload);
+
+			if (this.config.displayLastUpdate) {
+				this.lastUpdate = Date.now() / 1000; //save the timestamp of the last update to be able to display it
+				Log.log("ToDoIst update OK, project : " + this.config.projects + " at : " + moment.unix(this.lastUpdate).format(this.config.displayLastUpdateFormat)); //AgP
 			}
+			if(requestCheckCompleted)
+			{
+				this.sendSocketNotification("CHECK_COMPLETED", this.config);
+				return;
+			}
+			this.loaded = true;
+			this.updateDom();
 		}
 		else if(notification === "TASKS_INC_COMPLETED")
 		{
+			if(this.config.broadcastMode === "broadcast")
+			{
+				this.sendNotification("TODOIST_BROADCAST", {sender: this.identifier, tasksPayload: this.config.broadCastTaskPayload,  completedPayload: payload});
+				this.config.broadCastTaskPayload = null;
+			}
 			this.parseCompletedTasks(payload);
 			this.loaded = true;
-			this.updateDom(1000);
+			this.updateDom();
 		} else if (notification === "FETCH_ERROR") {
 			Log.error("Todoist Error. Could not fetch todos: " + payload.error);
 		}
@@ -303,7 +372,7 @@ Module.register("MMM-Todoist", {
 		if (tasks == undefined) {
 			return;
 		}
-		if (tasks.accessToken != self.config.accessToken) {
+		if (this.config.broadcastMode !== "receive" && tasks.accessToken != self.config.accessToken) {
 			return;
 		}
 		if (tasks.items == undefined) {
@@ -337,8 +406,6 @@ Module.register("MMM-Todoist", {
 			self.sanitizeDate(item);
 		});
 
-		// We just copy the old data to rerun the filtering even if nothing new is coming from the server
-		// this should ensure that i.e. due dates will be updated even though no new tasks has been created
 		if (!tasks.full_sync)
 		{
 			items = self.mergeAndUpdateItems(items, tasks.projects, tasks.collaborators);
@@ -498,16 +565,34 @@ Module.register("MMM-Todoist", {
 			var index = self.tasks.items.findIndex(itemToCheck => itemToCheck.parent.id == idToCheck);
 			if(index != -1)
 			{
+				Log.log("Item updated: " + item.content);
 				if(item.parent_id == null)
 				{
-					self.tasks.items[index].parent = item;
+					if(item.is_deleted)
+					{
+						Log.log("Item was deleted: " + item.content);
+						self.tasks.items.splice(index, 1);
+					}
+					else
+					{
+						self.tasks.items[index].parent = item;
+					}
 				}
 				else
 				{
 					var subIndex = self.tasks.items[index].children.findIndex(itemToCheck => itemToCheck.id == item.id);
+					Log.log("Item child updated: " + item.content);
 					if(subIndex != -1)
 					{
-						self.tasks.items[index].children[subIndex] = item;
+						if(item.is_deleted)
+						{
+							Log.log("Item child was deleted: " + item.content);
+							self.tasks.items[index].children.splice(subIndex, 1);
+						}
+						else
+						{
+							self.tasks.items[index].children[subIndex] = item;
+						}
 					}
 					else
 					{
@@ -517,7 +602,7 @@ Module.register("MMM-Todoist", {
 			}
 			else
 			{
-				if(item.parent_id == null)
+				if(item.parent_id == null && !item.is_deleted)
 				{
 					self.tasks.items.push({parent: item, children: []});
 				}
@@ -580,9 +665,9 @@ Module.register("MMM-Todoist", {
 		if (completedTasks == undefined) {
 			return;
 		}
-		if (completedTasks.accessToken != self.config.accessToken) {
+		if (this.config.broadcastMode !== "receive" && completedTasks.accessToken != self.config.accessToken) {
 			return;
-		} 
+		}
 		if (completedTasks.items == undefined) {
 			return;
 		}
@@ -795,7 +880,6 @@ Module.register("MMM-Todoist", {
 			cellClasses += " todoCompleted";
 			antiWrapSubtraction += 1;
 		}
-		var maxTitleLength = this.config.maxTitleLength;
 		if(true)
 		{
 			antiWrapSubtraction += preparedContent.innerHTML.length;
@@ -1078,17 +1162,17 @@ Module.register("MMM-Todoist", {
 				{
 					itemsToDisplay[ii].parent = self.tasks.items[ii].parent;
 					itemsCount++;
-					for(let jj = 0; jj < itemsToDisplay[ii].children.length; jj++)
+				}
+				for(let jj = 0; jj < itemsToDisplay[ii].children.length; jj++)
+				{
+					if(itemsCount >= maximumEntries)
 					{
-						if(itemsCount >= maximumEntries)
-						{
-							return itemsToDisplay;
-						}
-						if(itemsToDisplay[ii].children[jj] == null)
-						{
-							itemsToDisplay[ii].children[jj] == self.tasks.items[ii].children[jj];
-							itemsCount++;
-						}
+						return itemsToDisplay;
+					}
+					if(itemsToDisplay[ii].children[jj] == null)
+					{
+						itemsToDisplay[ii].children[jj] = self.tasks.items[ii].children[jj];
+						itemsCount++;
 					}
 				}
 			}

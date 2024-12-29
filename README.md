@@ -135,7 +135,8 @@ The following properties can be configured:
 		<tr>
 			<td><code>displayCompleted</code></td>
 			<td>If this is set, display completed tasks within the last 14 days or whatever is configured in <code>maksCompletedAgeDays</code><br>
-			<b>Note!</b> This only works with a paid version of Todoist<br>
+			<b>Note 1!</b> This only works with a paid version of Todoist<br>
+			<b>Note 2!</b> Seems like some completed items has had their parent ID removed from Todoist side and I don't think anything can be done about this. It may be when another user adds and/or completes in a shared list.<br>
 				<br><b>Possible values:</b> <code>boolean</code>
 				<br><b>Default value:</b> <code>false</code>
 			</td>
