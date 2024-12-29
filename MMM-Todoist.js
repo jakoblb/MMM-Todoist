@@ -296,7 +296,6 @@ Module.register("MMM-Todoist", {
 			Log.error("Todoist Error. Could not fetch todos: " + payload.error);
 		}
 	},
-
 	filterTodoistData: function (tasks) {
 		var self = this;
 		var items = [];
@@ -347,35 +346,7 @@ Module.register("MMM-Todoist", {
 		}
 		else
 		{
-			self.tasks.items = [];
-			self.tasks.projects = tasks.projects;
-			self.collaborators = tasks.collaborators;
-			items.forEach(item => {
-				if(item.parent_id == null)
-				{
-					self.tasks.items.push({parent: item, children: []});
-				}
-				else
-				{
-					var index = self.tasks.items.findIndex(childToCheck => childToCheck.parent.id == item.parent_id)
-					if(index != -1)
-					{
-						self.tasks.items[index].children.push(item);
-					}
-					else
-					{
-						Log.error("Unhandled case; full sync item is not a parent and has no matching parent id - item not conisdered");
-					}
-					/*for(let ii = 0; ii < self.tasks.items.length; ii++)
-					{
-						if(self.tasks.items[ii].parent.id == item.parent_id)
-						{
-							self.tasks.items[ii].children.push(item);
-						}
-					}*/
-				}
-			});
-			items = self.tasks.items;
+			items = self.replaceAllItems(tasks, items);
 		}
 
 		/* Not needed for labels, but kept for reuse elsewhere
@@ -409,25 +380,8 @@ Module.register("MMM-Todoist", {
 				}
 			});
 		}
-
-		if(self.config.displaySubtasks)
-		{
-			items.forEach(item => {
-				if(item.children.length > 0)
-				{
-					item.children.filter(function(item){
-						if(item.completed_at != null)
-						{
-							return self.taskIsDue(self.parseDueDate(item.completed_at), self.config.maksCompletedAgeDays);
-						}
-						else
-						{
-							return true;
-						}
-					});
-				}
-			});
-		}
+		// If MM has run for a long time and some (sub) tasks are to be removed as they have passed the expiration date
+		self.filterCompletedByAge(items);
 
 		//**** FOR DEBUGGING TO HELP PEOPLE GET THEIR PROJECT IDs */
 		if (self.config.debug) {
@@ -461,7 +415,7 @@ Module.register("MMM-Todoist", {
 	},
 	filterByLabelAndProject: function(tasks, items)
 	{
-		self = this;
+		var self = this;
 		// Filter the Todos by the criteria specified in the Config
 		// We assume that children will inherit their parents label/project
 		tasks.items.forEach(function (item) {
@@ -493,9 +447,35 @@ Module.register("MMM-Todoist", {
 		});
 		return items;
 	},
-	mergeAndUpdateItems(tasks, items)
+	replaceAllItems: function(tasks, items)
 	{
-		self = this;
+		var self = this;
+		self.tasks.items = [];
+		self.tasks.projects = tasks.projects;
+		self.collaborators = tasks.collaborators;
+		items.forEach(item => {
+			if(item.parent_id == null)
+			{
+				self.tasks.items.push({parent: item, children: []});
+			}
+			else
+			{
+				var index = self.tasks.items.findIndex(childToCheck => childToCheck.parent.id == item.parent_id)
+				if(index != -1)
+				{
+					self.tasks.items[index].children.push(item);
+				}
+				else
+				{
+					Log.error("Unhandled case; full sync item is not a parent and has no matching parent id - item not conisdered");
+				}
+			}
+		});
+		return self.tasks.items;
+	},
+	mergeAndUpdateItems: function(tasks, items)
+	{
+		var self = this;
 		tasks.projects.forEach(project => {
 			if(!self.tasks.projects.includes(projectIte => {projectIte.id == project.id}))
 			{
@@ -549,9 +529,41 @@ Module.register("MMM-Todoist", {
 		});
 		return self.tasks.items;
 	},
+	filterCompletedByAge: function(items)
+	{
+		var self = this;
+		items.filter(function(item){
+			if(item.parent.completed_at != null)
+			{
+				return self.taskIsDue(self.parseDueDate(item.parent.completed_at), self.config.maksCompletedAgeDays);
+			}
+			else
+			{
+				return true;
+			}
+		});
+		if(self.config.displaySubtasks)
+		{
+			items.forEach(item => {
+				if(item.children.length > 0)
+				{
+					item.children.filter(function(item){
+						if(item.completed_at != null)
+						{
+							return self.taskIsDue(self.parseDueDate(item.completed_at), self.config.maksCompletedAgeDays);
+						}
+						else
+						{
+							return true;
+						}
+					});
+				}
+			});
+		}
+	},
 	taskIsDue: function(date, daysBack)
 	{
-		self = this;
+		var self = this;
 		var oneDay = 24 * 60 * 60 * 1000;
 		var dueDateTime = date;//self.parseDueDate(date);
 		var dueDate = new Date(dueDateTime.getFullYear(), dueDateTime.getMonth(), dueDateTime.getDate());
@@ -562,7 +574,7 @@ Module.register("MMM-Todoist", {
 	},
 	parseCompletedTasks: function(completedTasks)
 	{
-		self = this;
+		var self = this;
 		var itemsNoParent = [];
 		var labelIds = [];
 		if (completedTasks == undefined) {
@@ -971,13 +983,17 @@ Module.register("MMM-Todoist", {
 	{
 		self = this;
 		var maximumEntries = this.config.maximumEntries;
+		if(maximumEntries == 0)
+		{
+			maximumEntries = 256;
+		}
 		var displayCompleted = this.config.displayCompleted;
 		var deprioritizeCompleted = this.config.deprioritizeCompleted;
 		var itemsToDisplay = [];
 		var itemsCount = 0;
 		this.tasks.items.forEach(item =>
 		{
-			if(itemsCount > maximumEntries)
+			if(itemsCount >= maximumEntries)
 			{
 				return itemsToDisplay;
 			}
@@ -989,7 +1005,7 @@ Module.register("MMM-Todoist", {
 				itemsCount++;
 				lastItemToDisplayIndex = itemsToDisplay.length-1;
 				item.children.forEach(itemChild => {
-					if(itemsCount > maximumEntries)
+					if(itemsCount >= maximumEntries)
 					{
 						return itemsToDisplay;
 					}
@@ -1002,12 +1018,12 @@ Module.register("MMM-Todoist", {
 					{
 						if(deprioritizeCompleted)
 						{
-							itemsToDisplay[lastItemToDisplayIndex].children.push(itemChild);
-							itemsCount++;
+							itemsToDisplay[lastItemToDisplayIndex].children.push(null);
 						}
 						else
 						{
-							itemsToDisplay[lastItemToDisplayIndex].children.push(null);
+							itemsToDisplay[lastItemToDisplayIndex].children.push(itemChild);
+							itemsCount++;
 						}
 					}
 				});
@@ -1021,6 +1037,7 @@ Module.register("MMM-Todoist", {
 				else
 				{
 					itemsToDisplay.push({parent: item, children: []});	
+					itemsCount++;
 				}
 			}
 		});
@@ -1028,7 +1045,7 @@ Module.register("MMM-Todoist", {
 		{
 			for(let ii = 0; ii < itemsToDisplay.length; ii++)
 			{
-				if(itemsCount > maximumEntries)
+				if(itemsCount >= maximumEntries)
 				{
 					return itemsToDisplay;
 				}
@@ -1038,7 +1055,7 @@ Module.register("MMM-Todoist", {
 					itemsCount++;
 					for(let jj = 0; jj < itemsToDisplay[ii].children.length; jj++)
 					{
-						if(itemsCount > maximumEntries)
+						if(itemsCount >= maximumEntries)
 						{
 							return itemsToDisplay;
 						}
