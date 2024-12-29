@@ -771,6 +771,7 @@ Module.register("MMM-Todoist", {
 		if(item.checked)
 		{
 			cellClasses += " todoCompleted";
+			antiWrapSubtraction += 1;
 		}
 		var maxTitleLength = this.config.maxTitleLength;
 		if(true)
