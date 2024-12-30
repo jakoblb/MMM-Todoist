@@ -298,7 +298,6 @@ Module.register("MMM-Todoist", {
 	},
 	filterTodoistData: function (tasks) {
 		var self = this;
-		var items = [];
 		var labelIds = [];
 
 		if (tasks == undefined) {
@@ -331,7 +330,7 @@ Module.register("MMM-Todoist", {
 				console.log(this.config.projects);
 			}
 		}
-		items = self.filterByLabelAndProject(tasks, items);
+		var items = self.filterByLabelAndProject(tasks);
 
 		// Used for ordering by date
 		items.forEach(function (item) {
@@ -342,11 +341,11 @@ Module.register("MMM-Todoist", {
 		// this should ensure that i.e. due dates will be updated even though no new tasks has been created
 		if (!tasks.full_sync)
 		{
-			items = self.mergeAndUpdateItems(tasks, items);
+			items = self.mergeAndUpdateItems(items, tasks.projects, tasks.collaborators);
 		}
 		else
 		{
-			items = self.replaceAllItems(tasks, items);
+			items = self.replaceAllItems(items, tasks.projects, tasks.collaborators);
 		}
 
 		/* Not needed for labels, but kept for reuse elsewhere
@@ -413,9 +412,10 @@ Module.register("MMM-Todoist", {
 			break;
 		}
 	},
-	filterByLabelAndProject: function(tasks, items)
+	filterByLabelAndProject: function(tasks)
 	{
 		var self = this;
+		items= [];
 		// Filter the Todos by the criteria specified in the Config
 		// We assume that children will inherit their parents label/project
 		tasks.items.forEach(function (item) {
@@ -435,7 +435,7 @@ Module.register("MMM-Todoist", {
         			}
       			}
 
-			// Filter using projets if projects are configured
+			// Filter using projets if projects are configured 
 			if (self.config.projects.length>0){
 			  self.config.projects.forEach(function (project) {
 			  		if (item.project_id == project) {
@@ -447,12 +447,12 @@ Module.register("MMM-Todoist", {
 		});
 		return items;
 	},
-	replaceAllItems: function(tasks, items)
+	replaceAllItems: function(items, projects, collaborators)
 	{
 		var self = this;
 		self.tasks.items = [];
-		self.tasks.projects = tasks.projects;
-		self.collaborators = tasks.collaborators;
+		self.tasks.projects = projects;
+		self.collaborators = collaborators;
 		items.forEach(item => {
 			if(item.parent_id == null)
 			{
@@ -473,16 +473,16 @@ Module.register("MMM-Todoist", {
 		});
 		return self.tasks.items;
 	},
-	mergeAndUpdateItems: function(tasks, items)
+	mergeAndUpdateItems: function(items, projects, collaborators)
 	{
 		var self = this;
-		tasks.projects.forEach(project => {
+		projects.forEach(project => {
 			if(!self.tasks.projects.includes(projectIte => {projectIte.id == project.id}))
 			{
 				self.tasks.projects.push(project);
 			}
 		});
-		tasks.collaborators.forEach(collaborator => {
+		collaborators.forEach(collaborator => {
 			if(!self.tasks.collaborators.includes(collaboratorIte => {collaboratorIte.id == collaborator.id}))
 			{
 				self.tasks.collaborators.push(collaborator);
@@ -582,7 +582,7 @@ Module.register("MMM-Todoist", {
 		}
 		if (completedTasks.accessToken != self.config.accessToken) {
 			return;
-		}
+		} 
 		if (completedTasks.items == undefined) {
 			return;
 		}
@@ -592,19 +592,27 @@ Module.register("MMM-Todoist", {
 			completedTasks.items.forEach(function (item)
 			{
 				if(item.item_object == undefined) { return; }
-				if(self.config.projects.find(project => item.item_object.project_id == project) == undefined &&
+				if(!self.isProjectInConfig(item.item_object.project_id) &&
 					!self.isLabelInConfig(item.item_object.labels)) { return; }
-
 				if (item.item_object.parent_id != null)
 				{
 					if(!self.config.displaySubtasks) { return; }
 					else
 					{
-						var parentIndex = self.items.findIndex(itemToCheck => itemToCheck.parent == item.item_object.parent_id);
+						var parentIndex = self.tasks.items.findIndex(itemToCheck => itemToCheck.parent.id == item.item_object.parent_id);
 						if(parentIndex != -1)
 						{
-							self.sanitizeDate(item.item_object);
-							self.tasks.items[parentIndex].children.push(sanitizedObject);
+							var childIndex = self.tasks.items[parentIndex].children.findIndex(childToCheck => childToCheck.id == item.item_object.id);
+							if(childIndex != -1)
+							{
+								self.sanitizeDate(item.item_object);
+								self.tasks.items[parentIndex].children[childIndex] = item.item_object;
+							}
+							else
+							{
+								self.sanitizeDate(item.item_object);
+								self.tasks.items[parentIndex].children.push(item.item_object);
+							}
 						}
 						else
 						{
@@ -614,21 +622,35 @@ Module.register("MMM-Todoist", {
 				}
 				else
 				{
-					// We always have completed at the end of the list
-					self.sanitizeDate(item.item_object);
-					self.tasks.items.push({parent: item.item_object, children: []});
+					var index = self.tasks.items.findIndex(itemToCheck => itemToCheck.parent.id == item.item_object.id);
+					if(index != -1)
+					{
+						self.sanitizeDate(item.item_object);
+						self.tasks.items[index].parent = item.item_object;
+					}
+					else
+					{
+						// We always have completed at the end of the list
+						self.sanitizeDate(item.item_object);
+						self.tasks.items.push({parent: item.item_object, children: []});	
+					}
 				}
 			});
 		}
 	},
-
+	isProjectInConfig: function(projectToCheck)
+	{
+		return (this.config.projects.find(project => projectToCheck == project) != undefined);
+	},
 	isLabelInConfig: function(labelsToCheck)
 	{
+		var returnValue = false;
+		if(this.config.labels.length == 0) { return false; }
 		this.config.labels.forEach(function(label)
 		{
-			if(labelsToCheck.find(labelToCheck => label == labelToCheck) != undefined) { return true; }
+			if(labelsToCheck.find(labelToCheck => label == labelToCheck) != undefined) { returnValue = true; return; }
 		});
-		return false;
+		return returnValue;
 	},
 	/*
 	 * The Todoist API returns task due dates as strings in these two formats: YYYY-MM-DD and YYYY-MM-DDThh:mm:ss
@@ -874,7 +896,7 @@ Module.register("MMM-Todoist", {
 		return cell;
 	},
 	getDom: function () {
-	
+		var self = this;
 		if (this.config.hideWhenEmpty && this.tasks.items.length===0) {
 			return null;
 		}
@@ -982,7 +1004,7 @@ Module.register("MMM-Todoist", {
 	},
 	truncateItems: function()
 	{
-		self = this;
+		var self = this;
 		var maximumEntries = this.config.maximumEntries;
 		if(maximumEntries == 0)
 		{
@@ -992,8 +1014,9 @@ Module.register("MMM-Todoist", {
 		var deprioritizeCompleted = this.config.deprioritizeCompleted;
 		var itemsToDisplay = [];
 		var itemsCount = 0;
-		this.tasks.items.forEach(item =>
+		for(let ii = 0; ii < this.tasks.items.length; ii++)
 		{
+			item = this.tasks.items[ii];
 			if(itemsCount >= maximumEntries)
 			{
 				return itemsToDisplay;
@@ -1004,30 +1027,31 @@ Module.register("MMM-Todoist", {
 			{
 				itemsToDisplay.push({parent: item.parent, children: []});
 				itemsCount++;
-				lastItemToDisplayIndex = itemsToDisplay.length-1;
-				item.children.forEach(itemChild => {
+				for(let jj = 0; jj < item.children.length; jj++)
+				{
+					itemChild = item.children[jj];
 					if(itemsCount >= maximumEntries)
 					{
 						return itemsToDisplay;
 					}
 					if(!itemChild.checked)
 					{
-						itemsToDisplay[lastItemToDisplayIndex].children.push(itemChild);
+						itemsToDisplay[ii].children.push(itemChild);
 						itemsCount++;
 					}
 					else
 					{
 						if(deprioritizeCompleted)
 						{
-							itemsToDisplay[lastItemToDisplayIndex].children.push(null);
+							itemsToDisplay[ii].children.push(null);
 						}
 						else
 						{
-							itemsToDisplay[lastItemToDisplayIndex].children.push(itemChild);
+							itemsToDisplay[ii].children.push(itemChild);
 							itemsCount++;
 						}
 					}
-				});
+				}
 			}
 			else if(displayCompleted)
 			{
@@ -1037,11 +1061,11 @@ Module.register("MMM-Todoist", {
 				}
 				else
 				{
-					itemsToDisplay.push({parent: item, children: []});	
+					itemsToDisplay.push({parent: item.parent, children: []});	
 					itemsCount++;
 				}
 			}
-		});
+		}
 		if(deprioritizeCompleted && displayCompleted)
 		{
 			for(let ii = 0; ii < itemsToDisplay.length; ii++)
@@ -1070,5 +1094,13 @@ Module.register("MMM-Todoist", {
 			}
 		}
 		return itemsToDisplay;
+	},
+	myProjectLog: function(stuff)
+	{
+
+		if(this.config.projects[0] == 2345550300)
+		{
+			Log.log(stuff);
+		}
 	}
 });
