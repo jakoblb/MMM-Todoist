@@ -98,10 +98,7 @@ Module.register("MMM-Todoist", {
 		todoistEndpoint: "sync",
 		todoistEndpointCompleted: "completed/get_all",
 
-		todoistResourceType: "[\"items\", \"projects\", \"collaborators\", \"user\", \"labels\", \"completed_info\", \"user_plan_limits\"]",
-
-		externalModulesConfig: {},
-		broadCastTaskPayload: null,
+		todoistResourceType: "[\"items\", \"projects\", \"collaborators\", \"user\", \"labels\", \"completed_info\", \"user_plan_limits\", \"stats\"]",
 
 		debug: false
 	},
@@ -124,6 +121,8 @@ Module.register("MMM-Todoist", {
 
 		this.updateIntervalID = 0; // Definition of the IntervalID to be able to stop and start it again
 		this.ModuleToDoIstHidden = false; // by default it is considered displayed. Note : core function "this.hidden" has strange behaviour, so not used here
+		this.externalModulesConfig = {};
+		this.broadCastTaskPayload = null;
 
 		//to display "Loading..." at start-up
 		this.title = "Loading...";
@@ -172,12 +171,15 @@ Module.register("MMM-Todoist", {
 	fetchAndSetUpdate: function() 
 	{
 		var self = this;
-		this.sendSocketNotification("FETCH_TODOIST", this.config);
+		if(this.updateIntervalID == 0)
+		{
+			this.sendSocketNotification("FETCH_TODOIST", this.config);
 
-		//add ID to the setInterval function to be able to stop it later on
-		this.updateIntervalID = setInterval(function () {
-			self.sendSocketNotification("FETCH_TODOIST", self.config);
-		}, this.config.updateInterval);
+			//add ID to the setInterval function to be able to stop it later on
+			this.updateIntervalID = setInterval(function () {
+				self.sendSocketNotification("FETCH_TODOIST", self.config);
+			}, this.config.updateInterval);
+		}
 	},
 	notificationReceived: function (notification, payload) {
 		var self = this;
@@ -330,11 +332,11 @@ Module.register("MMM-Todoist", {
 			{
 				if(!requestCheckCompleted)
 				{
-					this.sendNotification("TODOIST_BROADCAST", payload);
+					this.sendNotification("TODOIST_BROADCAST", {sender: this.identifier, tasksPayload: payload,  completedPayload: null});
 				}
 				else
 				{
-					this.config.broadCastTaskPayload = payload;
+					this.broadCastTaskPayload = payload;
 				}
 			}
 			this.filterTodoistData(payload);
@@ -355,8 +357,9 @@ Module.register("MMM-Todoist", {
 		{
 			if(this.config.broadcastMode === "broadcast")
 			{
-				this.sendNotification("TODOIST_BROADCAST", {sender: this.identifier, tasksPayload: this.config.broadCastTaskPayload,  completedPayload: payload});
-				this.config.broadCastTaskPayload = null;
+				Log.log("MMM-Todoist broadcasting information");
+				this.sendNotification("TODOIST_BROADCAST", {sender: this.identifier, tasksPayload: this.broadCastTaskPayload,  completedPayload: payload});
+				this.broadCastTaskPayload = null;
 			}
 			this.parseCompletedTasks(payload);
 			this.loaded = true;
