@@ -63,10 +63,18 @@ The following properties **must** be configured:<br>
 		<tr>
 			<td><code>projects</code></td>
 			<td>
-				Array of ProjectIDs you want to display. <br>
+				Array of ProjectIDs you want to display. Can be specifiec using either a simple configuration e.g. a list of projects, or more advanced where specific sections in each projects can also be specified.<br>
 				<br><b>Possible values:</b> <code>array</code>
-				<br><b>Default value:</b> <code>[ ]</code>
-				<br><b>Example:</b> <code>[166564794, 166564792]</code>
+				<br><b>Default value:</b> <code>[]</code>
+				<br>
+				</br><b>Simple config: array of project identifiers</b>
+				<br><b>Example 1:</b> <code>projects: [166564794, 166564792],</code>
+				</br></br><b>Advanced config: array of projects and sections</b>
+				<br><b>Possible values:</b>
+				<br><code>project</code> - Single project identifier
+				<br><code>sections</code> - list of sections for the given project
+				<br><code>isDissallowed</code> - whether the project (if single project), or sections are dissallowed to be displayed. (<code>false</code> by default)
+				<br><b>Example 2:</b> <code>projects: [{project: 2345550300, sections: ["177869187", "177869186"], isDissallowed: false}]</code>
 				<br>
 				<br>
 				<b>Getting the Todoist ProjectID:</b><br>
@@ -76,7 +84,8 @@ The following properties **must** be configured:<br>
 				Everything after %2F is the Project ID. In this case "166564897"<br><br>
 				<hr />
 				Alternatively, if you add <b>debug=true</b> in your config.js the Projects and ProjectsIDs will be displayed on MagicMirror as well as in the Browser console.<br><br>
-				<b>This value and/or the labels entry must be specified</b>. If both projects and labels are specified, then tasks from both will be shown.
+				<b>This value and/or the labels entry must be specified</b>. If both projects and labels are specified, then tasks from both will be shown.</br>
+				<b>Note:</b> If a section is specified, the project will <b>not be used</b>.
 			</td>
 		</tr>
 			<tr>
@@ -242,14 +251,16 @@ The following properties can be configured:
 				<code>"priority"</code> <span>- Sort based on the priority, in Descending order. (Highest priority first)</span> </br >
 				<code>"dueDateAsc"</code> <span>- Sort based on the Due Date of the Todo Ascending. (Oldest date first)</span> </br>
 				<code>"dueDateDesc"</code> <span>- Sort based on the Due Date of the Todo Descending. (Newest date first)</span></br>
-				<code>"dueDateDescPriority"</code> <span>- Sort based on the Due Date of the Todo Descending and by priority high to low.</span></br>
+				<code>"dueDateDescPriority"</code> <span>- Sort based on the Due Date of the Todo Descending and by priority high to low.</span>
 				<br><b>Default value:</b> <code>"todoist"</code>
 			</td>
 		</tr>
 				<tr>
 			<td><code>sortTypeStrict</code></td>
 			<td>If true this will sort also subtasks based on priority which can lead to strange behavior. This setting is mainly here to maintain legacy operation with new subtask functionality.<br>
-				<br><b>Possible values:</b> <code>boolean</code>
+				<br><b>Possible values:</b></br>
+				<code>true</code> - subtasks are not sorted under their parents but only based on sort type</br>
+				<code>false</code> - parents are sorted, children will stay nested under parents and are sorted in some cases.
 				<br><b>Default value:</b> <code>false</code>
 			</td>
 		</tr>

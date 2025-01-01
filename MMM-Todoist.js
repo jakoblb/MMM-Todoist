@@ -134,7 +134,8 @@ Module.register("MMM-Todoist", {
 				this.config.projects = this.config.lists;
 			}
 		}
-
+		// Unify project config
+		this.initProjectConfig();
 		this.tasks = {
 			items: [],
 			projects: [],
@@ -157,6 +158,37 @@ Module.register("MMM-Todoist", {
 		}
 	},
 
+	initProjectConfig: function ()
+	{
+		var self = this;
+		if(this.config.projects.length > 0)
+		{
+			tmpNewProject = [];
+			this.config.projects.forEach(project => {
+				if(typeof project !== 'object')
+				{
+					tmpNewProject.push({project: project, sections: [], isDissallowed: self.config.blacklistProjects});
+				}
+				else
+				{
+					if(project.sections === undefined)
+					{
+						project.sections = [];
+						if(project.isDissallowed === undefined)
+						{
+							project.isDissallowed = self.config.blacklistProjects;
+						}
+					}
+					if(project.isDissallowed === undefined)
+					{
+						project.isDissallowed = false;
+					}
+				}
+			});
+			if(tmpNewProject.length > 0)
+				this.config.projects = tmpNewProject;
+		}
+	},
 	suspend: function () { //called by core system when the module is not displayed anymore on the screen
 		this.ModuleToDoIstHidden = true;
 		//Log.log("Fct suspend - ModuleHidden = " + ModuleHidden);
@@ -192,8 +224,8 @@ Module.register("MMM-Todoist", {
 			if(this.config.broadcastMode == "receive")
 			{
 				// User can configure a specific access token to listen to in case we have multiple broadcasters
-				if((this.config.accessToken || this.config.accessToken !== "") &&
-					payload.tasksPayload.accessToken !== this.config.accessToken) { return; }
+				if(this.config.accessToken != undefined ){ if(this.config.accessToken !== "" &&
+					payload.tasksPayload.accessToken !== this.config.accessToken) { return; }}
 				this.filterTodoistData(payload.tasksPayload);
 
 				if (this.config.displayLastUpdate) {
@@ -207,6 +239,7 @@ Module.register("MMM-Todoist", {
 				{
 					this.parseCompletedTasks(payload.completedPayload);
 				}
+				this.sort();
 				this.loaded = true;
 				this.updateDom();	
 			}
@@ -356,6 +389,7 @@ Module.register("MMM-Todoist", {
 				this.sendSocketNotification("CHECK_COMPLETED", this.config);
 				return;
 			}
+			this.sort();
 			this.loaded = true;
 			this.updateDom();
 		}
@@ -368,6 +402,7 @@ Module.register("MMM-Todoist", {
 				this.broadCastTaskPayload = null;
 			}
 			this.parseCompletedTasks(payload);
+			this.sort();
 			this.loaded = true;
 			this.updateDom();
 		} else if (notification === "FETCH_ERROR") {
@@ -465,28 +500,6 @@ Module.register("MMM-Todoist", {
 				console.log("%c" + project.name + " -- " + project.id, "background: #222; color: #bada55");
 			});
 		};
-
-		//***** Sorting code if you want to add new methods. */
-		switch (self.config.sortType) {
-		case "todoist":
-			self.tasks.items = self.sortByTodoist(items);
-			break;
-		case 'priority':
-			self.tasks.items = self.sortByPriority(items);
-			break;
-		case "dueDateAsc":
-			self.tasks.items = self.sortByDueDateAsc(items);
-			break;
-		case "dueDateDesc":
-			self.tasks.items = self.sortByDueDateDesc(items);
-			break;
-		case "dueDateDescPriority":
-			self.tasks.items = self.sortByDueDateDescPriority(items);
-			break;
-		default:
-			self.tasks.items = self.sortByTodoist(items);
-			break;
-		}
 	},
 	filterByLabelAndProject: function(tasks)
 	{
@@ -494,6 +507,14 @@ Module.register("MMM-Todoist", {
 		items= [];
 		// Filter the Todos by the criteria specified in the Config
 		// We assume that children will inherit their parents label/project
+		Log.log("Todoist " + this.identifier);
+		// If we have only excluded projects, then we can include all projects not defined
+		// Sorry for this part, I cannot make the correct one liner ^^
+		var onlyDissallowedProjects = true;
+		this.config.projects.forEach(projectDef => {
+			if(!projectDef.isDissallowed && projectDef.sections.length === 0) { onlyDissallowedProjects = false; }
+			else if(projectDef.isDissallowed && projectDef.sections > 0) { onlyDissallowedProjects = false; }
+		});
 		tasks.items.forEach(function (item) {
 			// Ignore sub-tasks
 			if (item.parent_id!=null && !self.config.displaySubtasks) { return; }
@@ -510,15 +531,46 @@ Module.register("MMM-Todoist", {
           				}
         			}
       			}
-
-			// Filter using projets if projects are configured 
-			if (self.config.projects.length>0){
-			  self.config.projects.forEach(function (project) {
-			  		if (item.project_id == project) {
-						items.push(item);
-						return;
+			var projectDef = self.config.projects.find(sectionDef => sectionDef.project == item.project_id);
+			if(projectDef != undefined)
+			{
+				if(projectDef.sections.length > 0)
+				{
+					if(item.section_id == null)
+					{
+						if(projectDef.sections.includes("") && !projectDef.isDissallowed)
+						{
+							items.push(item);
+						}
 					}
-			  });
+					else
+					{
+						Log.log(projectDef.sections.includes(item.section_id) + " " + projectDef.isDissallowed + " " + projectDef.sections);
+						if(projectDef.sections.includes(item.section_id))
+						{
+							if(!projectDef.isDissallowed)
+							{
+								items.push(item);
+							}
+						}
+						else if (projectDef.isDissallowed)
+						{
+							items.push(item);
+						}
+					}
+				}
+				else
+				{
+					Log.log(!projectDef.isDissallowed);
+					if(!projectDef.isDissallowed)
+					{						
+						items.push(item);
+					}
+				}
+			}
+			else if(onlyDissallowedProjects)
+			{				
+				items.push(item);
 			}
 		});
 		return items;
@@ -530,7 +582,7 @@ Module.register("MMM-Todoist", {
 		self.tasks.projects = projects;
 		self.collaborators = collaborators;
 		items.forEach(item => {
-			if(item.parent_id == null)
+			if(item.parent_id == null || (self.config.sortTypeStrict && self.config.displaySubtasks))
 			{
 				self.tasks.items.push({parent: item, children: []});
 			}
@@ -567,19 +619,17 @@ Module.register("MMM-Todoist", {
 		// Remove/insert potential completed/uncompleted tasks
 		items.forEach(item => {
 			var idToCheck = item.id;
-			if(item.parent_id != null)
+			if(item.parent_id != null && !self.config.sortTypeStrict)
 			{
 				idToCheck = item.parent_id;
 			}
 			var index = self.tasks.items.findIndex(itemToCheck => itemToCheck.parent.id == idToCheck);
 			if(index != -1)
 			{
-				Log.log("Item updated: " + item.content);
-				if(item.parent_id == null)
+				if(item.parent_id == null || self.config.sortTypeStrict)
 				{
 					if(item.is_deleted)
 					{
-						Log.log("Item was deleted: " + item.content);
 						self.tasks.items.splice(index, 1);
 					}
 					else
@@ -590,12 +640,10 @@ Module.register("MMM-Todoist", {
 				else
 				{
 					var subIndex = self.tasks.items[index].children.findIndex(itemToCheck => itemToCheck.id == item.id);
-					Log.log("Item child updated: " + item.content);
 					if(subIndex != -1)
 					{
 						if(item.is_deleted)
 						{
-							Log.log("Item child was deleted: " + item.content);
 							self.tasks.items[index].children.splice(subIndex, 1);
 						}
 						else
@@ -611,7 +659,7 @@ Module.register("MMM-Todoist", {
 			}
 			else
 			{
-				if(item.parent_id == null && !item.is_deleted)
+				if((item.parent_id == null || (self.config.sortTypeStrict && self.config.displaySubtasks)) && !item.is_deleted)
 				{
 					self.tasks.items.push({parent: item, children: []});
 				}
@@ -666,8 +714,36 @@ Module.register("MMM-Todoist", {
 		var diffDays = Math.floor((dueDate - today) / (oneDay));
 		return diffDays <= daysBack;
 	},
-	parseCompletedTasks: function(completedTasks)
+	sort: function()
 	{
+		var self = this;
+		//***** Sorting code if you want to add new methods. */
+		switch (self.config.sortType) {
+			case "todoist":
+				self.sortByTodoist();
+				break;
+			case 'priority':
+				self.sortByPriority();
+				break;
+			case "dueDateAsc":
+				self.sortByDueDateAsc();
+				break;
+			case "dueDateDesc":
+				self.sortByDueDateDesc();
+				break;
+			case "dueDateDescPriority":
+				self.sortByDueDateDescPriority();
+				break;
+			case "todoistAndDue":
+				self.sortByTodoistPrioritiseDue();
+				break;
+			default:
+				self.sortByTodoist();
+				break;
+			}
+	},
+	parseCompletedTasks: function(completedTasks)
+	{ 
 		var self = this;
 		var itemsNoParent = [];
 		var labelIds = [];
@@ -688,30 +764,28 @@ Module.register("MMM-Todoist", {
 				if(item.item_object == undefined) { return; }
 				if(!self.isProjectInConfig(item.item_object.project_id) &&
 					!self.isLabelInConfig(item.item_object.labels)) { return; }
-				if (item.item_object.parent_id != null)
+				if(!self.config.displaySubtasks && item.item_object.parent_id != null) { return; }
+
+				if (item.item_object.parent_id != null && !self.config.sortTypeStrict)
 				{
-					if(!self.config.displaySubtasks) { return; }
-					else
+					var parentIndex = self.tasks.items.findIndex(itemToCheck => itemToCheck.parent.id == item.item_object.parent_id);
+					if(parentIndex != -1)
 					{
-						var parentIndex = self.tasks.items.findIndex(itemToCheck => itemToCheck.parent.id == item.item_object.parent_id);
-						if(parentIndex != -1)
+						var childIndex = self.tasks.items[parentIndex].children.findIndex(childToCheck => childToCheck.id == item.item_object.id);
+						if(childIndex != -1)
 						{
-							var childIndex = self.tasks.items[parentIndex].children.findIndex(childToCheck => childToCheck.id == item.item_object.id);
-							if(childIndex != -1)
-							{
-								self.sanitizeDate(item.item_object);
-								self.tasks.items[parentIndex].children[childIndex] = item.item_object;
-							}
-							else
-							{
-								self.sanitizeDate(item.item_object);
-								self.tasks.items[parentIndex].children.push(item.item_object);
-							}
+							self.sanitizeDate(item.item_object);
+							self.tasks.items[parentIndex].children[childIndex] = item.item_object;
 						}
 						else
 						{
-							Log.error("Unhandled case; completed item is not a parent and has no matching parent id - item not conisdered");
+							self.sanitizeDate(item.item_object);
+							self.tasks.items[parentIndex].children.push(item.item_object);
 						}
+					}
+					else
+					{
+						Log.error("Unhandled case; completed item is not a parent and has no matching parent id - item not conisdered");
 					}
 				}
 				else
@@ -783,11 +857,14 @@ Module.register("MMM-Todoist", {
 
 		return new Date(year, month - 1, day, hour, minute, second);
 	},
-	sortByTodoist: function (itemstoSort) {
-		itemstoSort.sort(function (a, b) {
+	sortByTodoist: function () {
+		self = this;
+
+		self.tasks.items.sort(function (a, b) {
 				return a.parent.id - b.parent.id;
 		});
-		itemstoSort.forEach(item => {
+
+		self.tasks.items.forEach(item => {
 			if(item.children.length > 0)
 			{
 				item.children.sort(function(a, b) {
@@ -811,36 +888,137 @@ Module.register("MMM-Todoist", {
 				});
 			}
 		});
-		return itemstoSort;
 	},
-	sortByDueDateAsc: function (itemstoSort) {
-		itemstoSort.sort(function (a, b) {
-			return a.date - b.date;
-		});
-		return itemstoSort;
-	},
-	sortByDueDateDesc: function (itemstoSort) {
-		itemstoSort.sort(function (a, b) {
-			return b.date - a.date;
-		});
-		return itemstoSort;
-	},
-	sortByPriority: function (itemstoSort) {
-		itemstoSort.sort(function (a, b) {
-			return b.priority - a.priority;
-		});
-		return itemstoSort;
-	},
-	sortByDueDateDescPriority: function (itemstoSort) {
-		itemstoSort.sort(function (a, b) {
-			if (a.date > b.date) return 1;
-			if (a.date < b.date) return -1;
+	sortByTodoistPrioritiseDue: function()
+	{
+		self = this;
 
-			if (a.priority < b.priority) return 1;
-			if (a.priority > b.priority) return -1;
+		self.tasks.items.sort(function (a, b) {
+			if(a.parent.priority != b.parent.priority)
+			{
+				return b.parent.priority - a.parent.priority;
+			}
+			else if(a.parent.date != null && b.parent.date != null)
+			{
+				return a.parent.date - b.parent.date;
+			}
+			else if(a.parent.date == b.parent.date)
+			{
+				return a.parent.id - b.parent.id;
+			}
+			// I don't think the below will ever happen
+			else if(a.parent.date == null && b.parent.date == null)
+			{
+				return a.parent.id - b.parent.id;
+			}
+			else if(a.parent.date != null && b.parent.date == null)
+			{
+				return -1;
+			}
+			else if(a.parent.date == null && b.parent.date != null)
+			{
+				return 1;
+			}
+			else
+			{
+				return -1
+			}
 		});
-		return itemstoSort;
-    	},
+
+		self.tasks.items.forEach(item => {
+			if(item.children.length > 0)
+			{
+				item.children.sort(function(a, b) {
+					
+					if(a.priority != b.priority)
+					{
+						return b.priority - a.priority;
+					}
+					else if(a.date != null && b.date != null)
+					{
+						return a.date - b.date;
+					}
+					else if(a.date == b.date)
+					{
+						return a.id - b.id;
+					}
+				});
+			}
+		});
+	},
+	sortByDueDateAsc: function () {
+		self.tasks.items.sort(function (a, b) {
+			return a.parent.date - b.parent.date;
+		});
+		self.tasks.items.forEach(item => {
+			if(item.children.length > 0)
+			{
+				item.children.sort(function (a, b) {
+					return a.date - b.date;
+				});
+			}
+		});
+	},
+	sortByDueDateDesc: function () {
+		self.tasks.items.sort(function (a, b) {
+			return b.parent.date - a.parent.date;
+		});
+		self.tasks.items.forEach(item => {
+			if(item.children.length > 0)
+			{
+				item.children.sort(function (a, b) {
+					return b.date - a.date;
+				});
+			}
+		});
+	},
+	sortByPriority: function () {
+		self.tasks.items.sort(function (a, b) {
+			return b.parent.priority - a.parent.priority;
+		});
+		self.tasks.items.forEach(item => {
+			if(item.children.length > 0)
+			{
+				item.children.sort(function (a, b) {
+					return b.priority - a.priority;
+				});
+			}
+		});
+	},
+	sortByDueDateDescPriority: function () {
+		self.tasks.items.sort(function (a, b) {
+			if (a.parent.date > b.parent.date) return 1;
+			if (a.parent.date < b.parent.date) return -1;
+
+			if (a.parent.priority < b.parent.priority) return 1;
+			if (a.parent.priority > b.parent.priority) return -1;
+		});
+		self.tasks.items.forEach(item => {
+			if(item.children.length > 0)
+			{
+				item.children.sort(function (a, b) {
+					if (a.date > b.date) return 1;
+					if (a.date < b.date) return -1;
+		
+					if (a.priority < b.priority) return 1;
+					if (a.priority > b.priority) return -1;
+				});
+			}
+		});
+	},
+	sortByCreatedDate: function () {
+		self.tasks.items.sort(function (a, b) {
+			return b.parent.priority - a.parent.priority;
+		});
+		self.tasks.items.forEach(item => {
+			if(item.children.length > 0)
+			{
+				item.children.sort(function (a, b) {
+					return b.priority - a.priority;
+				});
+			}
+		});
+	},
 	createCell: function(className, innerHTML) {
 		var cell = document.createElement("div");
 		cell.className = "divTableCell " + className;
@@ -878,7 +1056,7 @@ Module.register("MMM-Todoist", {
 		var cellClasses = "title bright alignLeft";
 		var antiWrapSubtraction = 0;
 		// if sorting by todoist, indent subtasks under their parents
-		if (this.config.sortType === "todoist" && item.parent_id) {
+		if (!this.config.sortTypeStrict && item.parent_id) {
 			// this item is a subtask so indent it
 			taskText = '- ' + taskText;
 			antiWrapSubtraction += 2;
@@ -891,7 +1069,7 @@ Module.register("MMM-Todoist", {
 		}
 		if(true)
 		{
-			antiWrapSubtraction += preparedContent.innerHTML.length;
+			antiWrapSubtraction += preparedContent.innerHTML.length + 1;
 		}
 		return this.createCell(cellClasses, 
 			this.shorten(taskText, (this.config.maxTitleLength - antiWrapSubtraction), this.config.wrapEvents));
