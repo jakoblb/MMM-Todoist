@@ -187,23 +187,29 @@ Module.register("MMM-Todoist", {
 			//Log.log("Fct notificationReceived USER_PRESENCE - payload = " + payload);
 			UserPresence = payload;
 			this.GestionUpdateIntervalToDoIst();
-		}  else if(notification === "TODOIST_BROADCAST" && this.config.broadcastMode == "receive")
+		}  else if(notification === "TODOIST_BROADCAST")
 		{
-			this.filterTodoistData(payload.tasksPayload);
-
-			if (this.config.displayLastUpdate) {
-				this.lastUpdate = Date.now() / 1000; //save the timestamp of the last update to be able to display it
-				if(this.config.debug)
-				{
-					Log.log("ToDoIst received broadcast update OK, project : " + this.config.projects + " at : " + moment.unix(this.lastUpdate).format(this.config.displayLastUpdateFormat)); //AgP
-				}
-			}
-			if(payload.completedPayload != null)
+			if(this.config.broadcastMode == "receive")
 			{
-				this.parseCompletedTasks(payload.completedPayload);
+				// User can configure a specific access token to listen to in case we have multiple broadcasters
+				if((this.config.accessToken || this.config.accessToken !== "") &&
+					payload.tasksPayload.accessToken !== this.config.accessToken) { return; }
+				this.filterTodoistData(payload.tasksPayload);
+
+				if (this.config.displayLastUpdate) {
+					this.lastUpdate = Date.now() / 1000; //save the timestamp of the last update to be able to display it
+					if(this.config.debug)
+					{
+						Log.log("ToDoIst received broadcast update OK, project : " + this.config.projects + " at : " + moment.unix(this.lastUpdate).format(this.config.displayLastUpdateFormat)); //AgP
+					}
+				}
+				if(payload.completedPayload != null)
+				{
+					this.parseCompletedTasks(payload.completedPayload);
+				}
+				this.loaded = true;
+				this.updateDom();	
 			}
-			this.loaded = true;
-			this.updateDom();
 		}
 		else if (notification === "ALL_MODULES_STARTED")
 		{

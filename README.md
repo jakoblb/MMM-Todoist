@@ -276,7 +276,28 @@ The following properties can be configured:
 				<br><b>Possible values:</b> <code>boolean</code>
 				<br><b>Default value:</b> <code>false</code>
 			</td>
-		</tr>	
+		</tr>
+		<tr>
+			<th colspan="2"> Multi-list configuration</th>
+		</tr>
+		<tr>
+			<td><code>broadcastMode</code></td>
+			<td>This setting is used if multiple lists modules are added but the user only wants to have a single entiry accessing the API.</code>. See screenshot below. <br>
+				<br><b>Possible values:</b></br>
+				<code>"none"</code> - Module access' the API using the configured access token in a self-contained manner.</br>
+				<code>"broadcast"</code> - Module access' the API using the configured access token, and broadcasts a notification with below notification and payload. </br>
+				<code>&emsp;{</br>
+				&emsp;&emsp;&emsp;notification: "TODOIST_BROADCAST",</br>
+				&emsp;&emsp;&emsp;payload: {</br>
+				&emsp;&emsp;&emsp;&emsp;sender: &LT;module identifier&GT;,</br>
+				&emsp;&emsp;&emsp;&emsp;tasksPayload: &LT;data from sync&GT,</br>
+				&emsp;&emsp;&emsp;&emsp;completedPayload: &LT;data from completed sync if any&GT</br>
+				&emsp;&emsp;&emsp;}</br>
+				&emsp;}</code></br>
+				<code>"receive"</code> - Module receives, filters, and displays data from the notification <code>"TODOIST_BROADCAST".</code> Note that if different modules broadcasts with differenc access tokens, specifying an access token with a module using "receive" configuration allows this module to filter based on the accessToken.</br>
+				<br><b>Default value:</b> <code>"none"</code>
+			</td>
+		</tr>
 	</tbody>
 </table>
 
