@@ -64,6 +64,9 @@
 	display: table;
 	width: 100%;
 }
+.divTableHeader {
+    display: table-row;
+}
 .divTableRow {
 	display: table-row;
 }

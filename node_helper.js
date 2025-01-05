@@ -138,9 +138,6 @@ module.exports = NodeHelper.create({
 		var self = this;
 		//request.debug = true;
 		var acessCode = self.config.accessToken;
-		console.log(acessCode);
-		console.log(self.config.apiBase + "/" + self.config.apiVersion + "/" + self.config.todoistEndpoint + "/");
-		console.log("Completing " + id + " with uuid " + uuid);
 		request({
 			url: "https://api.todoist.com/sync/v9/sync",
 			method: "POST",
@@ -174,8 +171,7 @@ module.exports = NodeHelper.create({
 			}
 			if (response.statusCode === 200) {
 				var replyJson = JSON.parse(body);
-				console.log("Completed " + replyJson)
-				self.sendSocketNotification("COMMAND_COMPLETED", {commandType: "COMPLETE_ITEM", syncStatus: replyJson});
+				self.sendSocketNotification("COMMAND_COMPLETED", {commandType: action, id: id, syncStatus: replyJson});
 			}
 			else{
 				console.log("Todoist api request status="+response.statusCode);

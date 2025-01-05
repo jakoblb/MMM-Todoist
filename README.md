@@ -128,6 +128,14 @@ The following properties can be configured:
 			</td>
 		</tr>
 		<tr>
+			<td><code>completedTaskDisplayPeriod</code></td>
+			<td>Minutes in which the data is displayed after completion in a special column even if <code>displayCompleted</code> is <code>false</code><br>
+			<td><b>Note:</b> For simple implementation, this is currently always rounded to ceiling <code>updateInterval</code></br>
+				<br><b>Possible values:</b> <code>int</code>
+				<br><b>Default value:</b> <code>1</code>
+			</td>
+		</tr>
+		<tr>
 			<td><code>deprioritizeCompleted</code></td>
 			<td>In case the <code>displaySubTasks</code> and <code>displayCompleted</code> is set, this settings ensures that completed items are not shown unless the number of non-completed items are lower than the max.<br>
 				<br><b>Possible values:</b> <code>boolean</code>
@@ -143,7 +151,7 @@ The following properties can be configured:
 		</tr>
 		<tr>
 			<td><code>displayCompleted</code></td>
-			<td>If this is set, display completed tasks within the last 14 days or whatever is configured in <code>maksCompletedAgeDays</code><br>
+			<td>If this is set, display completed tasks within the last 14 days or whatever is configured in <code>maksCompletedAgeDays</code>. Its primary purpose is to allow the user to uncomplete in case of second thoughts, or remember what was just completed.<br>
 			<b>Note 1!</b> This only works with a paid version of Todoist<br>
 			<b>Note 2!</b> Seems like some completed items has had their parent ID removed from Todoist side and I don't think anything can be done about this. It may be when another user adds and/or completes in a shared list.<br>
 				<br><b>Possible values:</b> <code>boolean</code>

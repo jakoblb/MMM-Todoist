@@ -59,7 +59,8 @@ Module.register("MMM-Todoist", {
 		deprioritizeCompleted: true,
 		broadcastMode: "none", // Multiple lists optimisation - can be "none", "receive", or "broadcast"
 		maxProjectLength: 5, // value to cut the project name
-		enabledTouchEvents: [], 
+		enabledTouchEvents: [],
+		completedTaskDisplayPeriod: 5, // Minutes in which the data is displayed after completion in a special column even if displayCompleted is false
 		// Other
 		showProject: true,
 		// projectColors: ["#95ef63", "#ff8581", "#ffc471", "#f9ec75", "#a8c8e4", "#d2b8a3", "#e2a8e4", "#cccccc", "#fb886e",
@@ -126,6 +127,12 @@ Module.register("MMM-Todoist", {
 		this.ModuleToDoIstHidden = false; // by default it is considered displayed. Note : core function "this.hidden" has strange behaviour, so not used here
 		this.externalModulesConfig = {};
 		this.broadCastTaskPayload = null;
+		this.completedItemsByFrame = []; //contains data of the recently completed items
+		this.sections = [];
+		if(this.config.completedTaskDisplayPeriod != 0)
+		{
+			this.config.completedTaskDisplayPeriod = Math.ceil(this.config.updateInterval / this.config.completedTaskDisplayPeriod);
+		}
 
 		//to display "Loading..." at start-up
 		this.title = "Loading...";
@@ -203,6 +210,20 @@ Module.register("MMM-Todoist", {
 		//Log.log("Fct resume - ModuleHidden = " + ModuleHidden);
 		this.GestionUpdateIntervalToDoIst();
 	},
+	checkCompletedByFrameExpirationAndFetch: function()
+	{
+		var self = this;
+		if(self.completedItemsByFrame.length != 0)
+		{
+			self.completedByFrame.forEach(completedItem => {
+				completedItem.timeLeft--;
+			});
+			self.completedByFrame = self.completedByFrame.filter(completedItems => {
+				completedItems.timeLeft > 0;
+			});
+		}
+		self.sendSocketNotification("FETCH_TODOIST", self.config);
+	},
 	fetchAndSetUpdate: function() 
 	{
 		var self = this;
@@ -212,7 +233,7 @@ Module.register("MMM-Todoist", {
 
 			//add ID to the setInterval function to be able to stop it later on
 			this.updateIntervalID = setInterval(function () {
-				self.sendSocketNotification("FETCH_TODOIST", self.config);
+				self.checkCompletedByFrameExpirationAndFetch();
 			}, this.config.updateInterval);
 		}
 	},
@@ -418,6 +439,32 @@ Module.register("MMM-Todoist", {
 				{
 					Log.error("MMM-Todoist: an object was not handled correctly");
 				}
+				else
+				{
+					if(payload.commandType ==="item_complete")
+					{
+						if(!self.isCompletedByFrame(payload.id))
+						{
+							self.completedItemsByFrame.push({id: payload.id, timeLeft: self.config.completedTaskDisplayPeriod});
+						}
+						else
+						{
+							Log.error("MMM-Todoist somehow tries to complete an already completed item");
+						}
+					}
+					else if(payload.commandType == "item_uncomplete")
+					{
+						var indexOfItem = self.completedItemsByFrame.findIndex(completedItem => completedItem.id === payload.id);
+						if(indexOfItem != undefined)
+						{
+							self.completedItemsByFrame.splice(indexOfItem, 1);
+						}
+						else
+						{
+							Log.log("Uncompleted item did not exist");
+						}
+					}
+				}
 			});
 			self.sendSocketNotification("FETCH_TODOIST", this.config);
 		}
@@ -528,9 +575,13 @@ Module.register("MMM-Todoist", {
 		var onlyDissallowedProjects = true;
 		this.config.projects.forEach(projectDef => {
 			if(!projectDef.isDissallowed && projectDef.sections.length === 0) { onlyDissallowedProjects = false; }
-			else if(projectDef.isDissallowed && projectDef.sections > 0) { onlyDissallowedProjects = false; }
+			else if(projectDef.isDissallowed && projectDef.sections.length > 0) { onlyDissallowedProjects = false; }
 		});
 		tasks.items.forEach(function (item) {
+			if(self.config.debug && !self.sections.includes(item.section_id))
+			{
+				self.sections.push(item.section_id);
+			}
 			// Ignore sub-tasks
 			if (item.parent_id!=null && !self.config.displaySubtasks) { return; }
 
@@ -540,8 +591,8 @@ Module.register("MMM-Todoist", {
         			for (let label of item.labels) {
           				for (let labelName of self.config.labels) {
             					if (label == labelName) { //the string returned from SyncAPI matches the strong in config
-              						items.push(item);
-              						return;
+									items.push(item);
+									return;
             					}
           				}
         			}
@@ -1038,9 +1089,9 @@ Module.register("MMM-Todoist", {
 		cell.innerHTML = innerHTML;
 		return cell;
 	},
-	addPriorityIndicatorCell: function(item) {
+	addPriorityIndicatorCell: function(priority) {
 		var className = "priority ";
-		switch (item.priority) {
+		switch (priority) {
 			case 4:
 				className += "priority1";
 				break;
@@ -1086,6 +1137,11 @@ Module.register("MMM-Todoist", {
 		{
 			antiWrapSubtraction += maxDueDateCellLength;
 		}
+		// To account for header bolding
+		if(item.id == 0)
+		{
+			antiWrapSubtraction += 5
+		}
 		if (this.config.showProject) {
 			// TODO: Fix this hardcoding to actual measurements
 			if(this.config.maxProjectLength < maxProjectCellLength && this.config.maxProjectLength != 0)
@@ -1099,15 +1155,22 @@ Module.register("MMM-Todoist", {
 		}
 		var cellDiv = this.createCell(cellClasses, 
 			this.shorten(taskText, (this.config.maxTitleLength - antiWrapSubtraction), this.config.wrapEvents));
-		if(!item.checked && this.config.enabledTouchEvents.includes("completeItem"))
+		if(item.id != 0)
 		{
-			var command = "COMPLETE_ITEM";
-			cellDiv.addEventListener("click", ()=>{ Log.log("Touching: " + item.content + " " + item.id); self.sendSocketNotification("TOUCH_EVENT", {cellId: "TODO_CONTENT", command: command, moduleId: self.identifier, id: item.id, uuid: uuid.v4()}) })
-		}
-		else if(item.checked && this.config.enabledTouchEvents.includes("uncompleteItem"))
-		{
-			var command = "UNCOMPLETE_ITEM";
-			cellDiv.addEventListener("click", ()=>{ Log.log("Touching: " + item.content + " " + item.id); self.sendSocketNotification("TOUCH_EVENT", {cellId: "TODO_CONTENT", command: command, moduleId: self.identifier, id: item.id, uuid: uuid.v4()}) })
+			if(!item.checked && this.config.enabledTouchEvents.includes("completeItem"))
+			{
+				cellDiv.addEventListener("click", ()=>
+					{ 
+						self.sendSocketNotification("TOUCH_EVENT", {cellId: "TODO_CONTENT", command: "COMPLETE_ITEM", moduleId: self.identifier, id: item.id, uuid: uuid.v4()});
+					});
+			}
+			else if(item.checked && this.config.enabledTouchEvents.includes("uncompleteItem"))
+			{
+				cellDiv.addEventListener("click", ()=>
+					{ 
+						self.sendSocketNotification("TOUCH_EVENT", {cellId: "TODO_CONTENT", command: "UNCOMPLETE_ITEM", moduleId: self.identifier, id: item.id, uuid: uuid.v4()});
+					});
+			}
 		}
 		return cellDiv;
 
@@ -1211,13 +1274,32 @@ Module.register("MMM-Todoist", {
 
 		return cell;
 	},
+	createHeader: function(headerText, collaboratorsMap, maxDueDateCellLength, maxProjectCellLength)
+	{
+		var divRow = document.createElement("div");
+		//Add the Row
+		divRow.className = "divTableHeader";
+		//Columns
+		divRow.appendChild(this.addPriorityIndicatorCell(0));
+		divRow.appendChild(this.addColumnSpacerCell());
+		divRow.appendChild(this.addTodoTextCell({ id: 0, contentHtml: "<p>" + headerText + "</p>", parent_id: null, checked: false, dueDateContentHTML: "" }, maxDueDateCellLength, maxProjectCellLength));
+		divRow.appendChild(this.addDueDateCell({dueDateContentHTML: {className: "" , innerHTML: ""}}));
+		if (this.config.showProject) {
+			divRow.appendChild(this.addColumnSpacerCell());
+			divRow.appendChild(this.addProjectCell({color: "", name: "", }));
+		}
+		if (this.config.displayAvatar) {
+			divRow.appendChild(this.addAssigneeAvatorCell({responsible_uid: 0}, collaboratorsMap));
+		}
+		return divRow;
+	},
 	createRow: function(item, collaboratorsMap, maxDueDateCellLength, maxProjectCellLength)
 	{
 		var divRow = document.createElement("div");
 		//Add the Row
 		divRow.className = "divTableRow";
 		//Columns
-		divRow.appendChild(this.addPriorityIndicatorCell(item));
+		divRow.appendChild(this.addPriorityIndicatorCell(item.priority));
 		divRow.appendChild(this.addColumnSpacerCell());
 		divRow.appendChild(this.addTodoTextCell(item, maxDueDateCellLength, maxProjectCellLength));
 		divRow.appendChild(this.addDueDateCell(item));
@@ -1229,6 +1311,18 @@ Module.register("MMM-Todoist", {
 			divRow.appendChild(this.addAssigneeAvatorCell(item, collaboratorsMap));
 		}
 		return divRow;
+	},
+	addRecentlyCompleted: function(truncatedItems, divBody, collaboratorsMap)
+	{
+		if(truncatedItems.completedByFrame.length != 0)
+		{
+			divBody.append(self.createHeader("Recently completed tasks", collaboratorsMap, truncatedItems.maxDueDateCellLength, truncatedItems.maxProjectCellLength));
+			truncatedItems.completedByFrame.forEach(item => {
+				if(item == null) { return; }
+				divBody.append(self.createRow(item, collaboratorsMap, truncatedItems.maxDueDateCellLength, truncatedItems.maxProjectCellLength));
+			});
+			divBody.append(self.createHeader("Other tasks", collaboratorsMap, truncatedItems.maxDueDateCellLength, truncatedItems.maxProjectCellLength));
+		}
 	},
 	getDom: function () {
 		var self = this;
@@ -1267,8 +1361,7 @@ Module.register("MMM-Todoist", {
 		for (var value=0; value < this.tasks.collaborators.length; value++) {
 			collaboratorsMap.set(this.tasks.collaborators[value].id, value);
 		}
-
-		var prevProjectName = "Unknown";
+		self.addRecentlyCompleted(truncatedItems, divBody, collaboratorsMap);
 		//Iterate through Todos
 		truncatedItems.itemsToDisplay.forEach(item => {
 			if(item.parent == null) { return; }
@@ -1309,6 +1402,21 @@ Module.register("MMM-Todoist", {
 
 		return wrapper;
 	},
+	isCompletedByFrame: function(id)
+	{
+		return this.completedItemsByFrame.some(idContainer => idContainer.id === id);
+	},
+	checkMaxTextLength: function(item, retVal)
+	{
+		if(item.dueDateContentHTML.innerHTML.length > retVal.maxDueDateCellLength)
+			{
+				retVal.maxDueDateCellLength = item.dueDateContentHTML.innerHTML.length;
+			}
+			if((item.project.name).length > retVal.maxDueDateCellLength)
+			{
+				retVal.maxProjectCellLength = (item.project.name).length;
+			}
+	},
 	truncateItems: function()
 	{
 		var self = this;
@@ -1319,8 +1427,9 @@ Module.register("MMM-Todoist", {
 		}
 		var displayCompleted = this.config.displayCompleted;
 		var deprioritizeCompleted = this.config.deprioritizeCompleted;
-		var retVal = {itemsToDisplay: [], maxDueDateCellLength: 0, maxProjectCellLength: 0};
+		var retVal = {itemsToDisplay: [], maxDueDateCellLength: 0, maxProjectCellLength: 0, completedByFrame: []};
 		var itemsCount = 0;
+		var foundRecentlyCompleted = false;
 		for(let ii = 0; ii < this.tasks.items.length; ii++)
 		{
 			item = this.tasks.items[ii];
@@ -1330,14 +1439,7 @@ Module.register("MMM-Todoist", {
 			}
 			item.parent.dueDateContentHTML = self.prepareDueDateCell(item.parent);
 			item.parent.project = self.findProject(item.parent);
-			if(item.parent.dueDateContentHTML.innerHTML.length > retVal.maxDueDateCellLength)
-			{
-				retVal.maxDueDateCellLength = item.parent.dueDateContentHTML.innerHTML.length;
-			}
-			if((item.parent.project.name).length > retVal.maxDueDateCellLength)
-			{
-				retVal.maxProjectCellLength = (item.parent.project.name).length;
-			}
+			self.checkMaxTextLength(item.parent, retVal);
 			// TODO why is a parent null???
 			//if(item.parent === undefined) {return;}
 			if(!item.parent.checked)
@@ -1353,22 +1455,29 @@ Module.register("MMM-Todoist", {
 					}
 					itemChild.dueDateContentHTML = self.prepareDueDateCell(itemChild);
 					itemChild.project = self.findProject(item.parent);
-					if(itemChild.dueDateContentHTML.innerHTML.length > retVal.maxDueDateCellLength)
-					{
-						retVal.maxDueDateCellLength = itemChild.dueDateContentHTML.innerHTML.length;
-					}
-					if((itemChild.project.name).length > retVal.maxDueDateCellLength)
-					{
-						retVal.maxProjectCellLength = (itemChild.project.name).length;
-					}
-					if(!itemChild.checked)
+					self.checkMaxTextLength(itemChild, retVal);
+					if(!itemChild.checked && !self.isCompletedByFrame(itemChild.id))
 					{
 						retVal.itemsToDisplay[ii].children.push(itemChild);
 						itemsCount++;
 					}
 					else
 					{
-						if(deprioritizeCompleted)
+						if(self.isCompletedByFrame(itemChild.id))
+						{
+							retVal.completedByFrame.push(itemChild);
+							retVal.itemsToDisplay[ii].children.push(null);
+							if(foundRecentlyCompleted)
+							{
+								itemsCount++;
+							}
+							else // We just make room for the "recently completed" and "todo items" headers
+							{
+								itemsCount += 3;
+								foundRecentlyCompleted = true;
+							}
+						}
+						else if(deprioritizeCompleted)
 						{
 							retVal.itemsToDisplay[ii].children.push(null);
 						}
@@ -1382,7 +1491,21 @@ Module.register("MMM-Todoist", {
 			}
 			else if(displayCompleted)
 			{
-				if(deprioritizeCompleted)
+				if(self.isCompletedByFrame(parent.id))
+				{
+					retVal.completedByFrame.push(itemChild);
+					retVal.itemsToDisplay.push({parent: null, children: []});	
+					if(foundRecentlyCompleted)
+					{
+						itemsCount++;
+					}
+					else // We just make room for the "recently completed" and "todo items" headers
+					{
+						itemsCount += 3;
+						foundRecentlyCompleted = true;
+					}
+				}
+				else if(deprioritizeCompleted)
 				{
 					retVal.itemsToDisplay.push({parent: null, children: []});	
 				}
@@ -1401,7 +1524,7 @@ Module.register("MMM-Todoist", {
 				{
 					return retVal;
 				}
-				if(retVal.itemsToDisplay[ii].parent == null)
+				if(retVal.itemsToDisplay[ii].parent == null && !self.isCompletedByFrame(self.tasks.items[ii].parent.id))
 				{
 					retVal.itemsToDisplay[ii].parent = self.tasks.items[ii].parent;
 					itemsCount++;
@@ -1412,7 +1535,7 @@ Module.register("MMM-Todoist", {
 					{
 						return retVal;
 					}
-					if(retVal.itemsToDisplay[ii].children[jj] == null)
+					if(retVal.itemsToDisplay[ii].children[jj] == null && !self.isCompletedByFrame(self.tasks.items[ii].children[jj].id))
 					{
 						retVal.itemsToDisplay[ii].children[jj] = self.tasks.items[ii].children[jj];
 						itemsCount++;
