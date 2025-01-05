@@ -398,7 +398,7 @@ Module.register("MMM-Todoist", {
 		{
 			if(this.config.broadcastMode === "broadcast")
 			{
-				Log.log("MMM-Todoist broadcasting information");
+				//Log.log("MMM-Todoist broadcasting information");
 				this.sendNotification("TODOIST_BROADCAST", {sender: this.identifier, tasksPayload: this.broadCastTaskPayload,  completedPayload: payload});
 				this.broadCastTaskPayload = null;
 			}
@@ -508,7 +508,6 @@ Module.register("MMM-Todoist", {
 		items= [];
 		// Filter the Todos by the criteria specified in the Config
 		// We assume that children will inherit their parents label/project
-		Log.log("Todoist " + this.identifier);
 		// If we have only excluded projects, then we can include all projects not defined
 		// Sorry for this part, I cannot make the correct one liner ^^
 		var onlyDissallowedProjects = true;
@@ -546,7 +545,6 @@ Module.register("MMM-Todoist", {
 					}
 					else
 					{
-						Log.log(projectDef.sections.includes(item.section_id) + " " + projectDef.isDissallowed + " " + projectDef.sections);
 						if(projectDef.sections.includes(item.section_id))
 						{
 							if(!projectDef.isDissallowed)
@@ -562,7 +560,6 @@ Module.register("MMM-Todoist", {
 				}
 				else
 				{
-					Log.log(!projectDef.isDissallowed);
 					if(!projectDef.isDissallowed)
 					{						
 						items.push(item);
@@ -1312,7 +1309,6 @@ Module.register("MMM-Todoist", {
 			}
 			if((item.parent.project.name).length > retVal.maxDueDateCellLength)
 			{
-				Log.log(item.parent.project.name);
 				retVal.maxProjectCellLength = (item.parent.project.name).length;
 			}
 			// TODO why is a parent null???
