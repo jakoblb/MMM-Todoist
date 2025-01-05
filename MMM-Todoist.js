@@ -29,7 +29,6 @@
 
 //UserPresence Management (PIR sensor)
 var UserPresence = true; //true by default, so no impact for user without a PIR sensor
-
 Module.register("MMM-Todoist", {
 
 	defaults: {
@@ -60,6 +59,7 @@ Module.register("MMM-Todoist", {
 		deprioritizeCompleted: true,
 		broadcastMode: "none", // Multiple lists optimisation - can be "none", "receive", or "broadcast"
 		maxProjectLength: 5, // value to cut the project name
+		enabledTouchEvents: [], 
 		// Other
 		showProject: true,
 		// projectColors: ["#95ef63", "#ff8581", "#ffc471", "#f9ec75", "#a8c8e4", "#d2b8a3", "#e2a8e4", "#cccccc", "#fb886e",
@@ -105,6 +105,9 @@ Module.register("MMM-Todoist", {
 	},
 
 	// Define required scripts.
+	getScripts: function () {
+		return [this.file('node_modules/js-uuid/js-uuid.js')];
+	},
 	getStyles: function () {
 		return ["MMM-Todoist.css"];
 	},
@@ -119,7 +122,6 @@ Module.register("MMM-Todoist", {
 	start: function () {
 		var self = this;
 		Log.info("Starting module: " + this.name);
-
 		this.updateIntervalID = 0; // Definition of the IntervalID to be able to stop and start it again
 		this.ModuleToDoIstHidden = false; // by default it is considered displayed. Note : core function "this.hidden" has strange behaviour, so not used here
 		this.externalModulesConfig = {};
@@ -342,6 +344,7 @@ Module.register("MMM-Todoist", {
 	// Override socket notification handler.
 	// ******** Data sent from the Backend helper. This is the data from the Todoist API ************
 	socketNotificationReceived: function (notification, payload) {
+		var self = this;
 		if (notification === "TASKS") {
 			this.config.syncToken = payload.sync_token;
 			// This is a minor optimisation that allows us to brroadcast data before working on the local filtering in case we do not run the CHECK_COMPLETED
@@ -406,7 +409,19 @@ Module.register("MMM-Todoist", {
 			this.sort();
 			this.loaded = true;
 			this.updateDom();
-		} else if (notification === "FETCH_ERROR") {
+		}
+		else if (notification === "COMMAND_COMPLETED")
+		{
+			Object.values(payload.syncStatus.sync_status).forEach(syncStatus =>
+			{
+				if(syncStatus != "ok")
+				{
+					Log.error("MMM-Todoist: an object was not handled correctly");
+				}
+			});
+			self.sendSocketNotification("FETCH_TODOIST", this.config);
+		}
+		else if (notification === "FETCH_ERROR") {
 			Log.error("Todoist Error. Could not fetch todos: " + payload.error);
 		}
 	},
@@ -1045,6 +1060,7 @@ Module.register("MMM-Todoist", {
 		return this.createCell("spacerCell", "&nbsp;");
 	},
 	addTodoTextCell: function(item, maxDueDateCellLength, maxProjectCellLength) {
+		var self = this;
 		var temp = document.createElement('div');
 		temp.innerHTML = item.contentHtml;
 
@@ -1081,8 +1097,19 @@ Module.register("MMM-Todoist", {
 				antiWrapSubtraction += maxProjectCellLength + 4;
 			}
 		}
-		return this.createCell(cellClasses, 
+		var cellDiv = this.createCell(cellClasses, 
 			this.shorten(taskText, (this.config.maxTitleLength - antiWrapSubtraction), this.config.wrapEvents));
+		if(!item.checked && this.config.enabledTouchEvents.includes("completeItem"))
+		{
+			var command = "COMPLETE_ITEM";
+			cellDiv.addEventListener("click", ()=>{ Log.log("Touching: " + item.content + " " + item.id); self.sendSocketNotification("TOUCH_EVENT", {cellId: "TODO_CONTENT", command: command, moduleId: self.identifier, id: item.id, uuid: uuid.v4()}) })
+		}
+		else if(item.checked && this.config.enabledTouchEvents.includes("uncompleteItem"))
+		{
+			var command = "UNCOMPLETE_ITEM";
+			cellDiv.addEventListener("click", ()=>{ Log.log("Touching: " + item.content + " " + item.id); self.sendSocketNotification("TOUCH_EVENT", {cellId: "TODO_CONTENT", command: command, moduleId: self.identifier, id: item.id, uuid: uuid.v4()}) })
+		}
+		return cellDiv;
 
 		// return this.createCell("title bright alignLeft", item.content);
 	},

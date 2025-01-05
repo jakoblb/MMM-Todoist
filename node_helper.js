@@ -30,10 +30,16 @@ module.exports = NodeHelper.create({
 			this.config = payload;
 			this.testCompleted();
 		}
-		else if(notification === "COMPLETE_ITEM")
+		else if(notification === "TOUCH_EVENT")
 		{
-			this.config = payload.payload;
-			this.completeItem(payload.id);
+			if(payload.command === "COMPLETE_ITEM")
+			{
+				this.modifyItem(payload.id, payload.uuid, "item_complete");
+			}
+			else if(payload.command === "UNCOMPLETE_ITEM")
+			{
+				this.modifyItem(payload.id, payload.uuid, "item_uncomplete");
+			}
 		}
 	},
 
@@ -128,15 +134,15 @@ module.exports = NodeHelper.create({
 			}
 		});
 	},
-
-	completeItem : function(id) {
+	modifyItem : function(id, uuid, action) {
 		var self = this;
 		//request.debug = true;
 		var acessCode = self.config.accessToken;
-		var dateToLookbackForCompleted = new Date(Date.now() - self.config.maksCompletedAgeDays * 24 * 60 * 60 * 1000);
-		var dateString = dateToLookbackForCompleted.getFullYear()+"-"+String(dateToLookbackForCompleted.getMonth()+1).padStart(2, '0')+"-"+String(dateToLookbackForCompleted.getDate()).padStart(2, '0')+"T00:00:00.000000Z";
+		console.log(acessCode);
+		console.log(self.config.apiBase + "/" + self.config.apiVersion + "/" + self.config.todoistEndpoint + "/");
+		console.log("Completing " + id + " with uuid " + uuid);
 		request({
-			url: self.config.apiBase + "/" + self.config.apiVersion + "/" + self.config.todoistEndpointCompleted + "/",
+			url: "https://api.todoist.com/sync/v9/sync",
 			method: "POST",
 			headers: {
 				"content-type": "application/x-www-form-urlencoded",
@@ -144,39 +150,32 @@ module.exports = NodeHelper.create({
 				"Authorization": "Bearer " + acessCode
 			},
 			form: {
-				commands:
-				[
+				commands: JSON.stringify([
 					{
-						type: "item_complete",
-						uuid: "",
+						type: action,
+						uuid: uuid,
 						args:
 						{
 							id: id,
 						}
 					}
-				]
+				])
 			},
 		},
 		function(error, response, body) {
 			if (error) {
-				self.sendSocketNotification("FETCH_ERROR", {
+				self.sendSocketNotification("COMMAND_ERROR", {
 					error: error
 				});
 				return console.error(" ERROR - MMM-Todoist: " + error);
 			}
-			if(self.config.debug){
+			if(self.config.debug || true){
 				console.log(body);
 			}
 			if (response.statusCode === 200) {
-				var taskJson = JSON.parse(body);
-				taskJson.items.forEach((item)=>{
-					if(item.item_object!=undefined)
-					{
-						item.item_object.contentHtml = markdown.makeHtml(item.content);
-					}
-				});
-				taskJson.accessToken = acessCode;
-				self.sendSocketNotification("TASKS_INC_COMPLETED", taskJson);
+				var replyJson = JSON.parse(body);
+				console.log("Completed " + replyJson)
+				self.sendSocketNotification("COMMAND_COMPLETED", {commandType: "COMPLETE_ITEM", syncStatus: replyJson});
 			}
 			else{
 				console.log("Todoist api request status="+response.statusCode);

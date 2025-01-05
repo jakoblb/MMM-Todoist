@@ -186,6 +186,15 @@ The following properties can be configured:
 			</td>
 		</tr>
 		<tr>
+			<td><code>enabledTouchEvents</code></td>
+			<td>Events to be sent when a part of the Todo item is pressed<br>
+				<br><b>Possible values:</b> <code>array of one or more options</code>
+				<code>"completeItem"</code> - Allows the user to touch the content field to complete an item.</br>
+				<code>"uncompleteItem"</code> - Allows the user to touch the content field to uncomplete an item.</br>
+				<br><b>Default value:</b> <code>[]</code>
+			</td>
+		</tr>
+		<tr>
 			<td><code>fade</code></td>
 			<td>Fade todos to black. (Gradient)<br>
 				<br><b>Possible values:</b> <code>true</code> or <code>false</code>
