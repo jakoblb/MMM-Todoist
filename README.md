@@ -236,6 +236,14 @@ The following properties can be configured:
 			</td>
 		</tr>
 		<tr>
+			<td><code>maxProjectLength</code></td>
+			<td>Value to cut the project name, 0 equals no limit to the length<br>
+			<b>Note:<\b> Some of these values are currently hardcoded and may misbehave</br>
+				<br><b>Possible values:</b> <code>int</code>
+				<br><b>Default value:</b> <code>5</code>
+			</td>
+		</tr>
+		<tr>
 			<td><code>showProject</code></td>
 			<td>If true this will display the Project to the right of the DueDates as it does on Todost.<br>
 				<br><b>Possible values:</b> <code>boolean</code>

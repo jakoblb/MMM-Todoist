@@ -59,6 +59,7 @@ Module.register("MMM-Todoist", {
 		sortTypeStrict: false, // Whether subtasks will stay under their parents task even if the priority is different
 		deprioritizeCompleted: true,
 		broadcastMode: "none", // Multiple lists optimisation - can be "none", "receive", or "broadcast"
+		maxProjectLength: 5, // value to cut the project name
 		// Other
 		showProject: true,
 		// projectColors: ["#95ef63", "#ff8581", "#ffc471", "#f9ec75", "#a8c8e4", "#d2b8a3", "#e2a8e4", "#cccccc", "#fb886e",
@@ -1046,7 +1047,7 @@ Module.register("MMM-Todoist", {
 	addColumnSpacerCell: function() {
 		return this.createCell("spacerCell", "&nbsp;");
 	},
-	addTodoTextCell: function(item, preparedContent) {
+	addTodoTextCell: function(item, maxDueDateCellLength, maxProjectCellLength) {
 		var temp = document.createElement('div');
 		temp.innerHTML = item.contentHtml;
 
@@ -1067,17 +1068,29 @@ Module.register("MMM-Todoist", {
 			cellClasses += " todoCompleted";
 			antiWrapSubtraction += 1;
 		}
-		if(true)
+
+		if(item.dueDateContentHTML != "")
 		{
-			antiWrapSubtraction += preparedContent.innerHTML.length + 1;
+			antiWrapSubtraction += maxDueDateCellLength;
+		}
+		if (this.config.showProject) {
+			// TODO: Fix this hardcoding to actual measurements
+			if(this.config.maxProjectLength < maxProjectCellLength && this.config.maxProjectLength != 0)
+			{
+				antiWrapSubtraction += this.config.maxProjectLength + 4;
+			}
+			else
+			{
+				antiWrapSubtraction += maxProjectCellLength + 4;
+			}
 		}
 		return this.createCell(cellClasses, 
 			this.shorten(taskText, (this.config.maxTitleLength - antiWrapSubtraction), this.config.wrapEvents));
 
 		// return this.createCell("title bright alignLeft", item.content);
 	},
-	addDueDateCell: function(item, preparedContent) {
-		return this.createCell(preparedContent.className, preparedContent.innerHTML);
+	addDueDateCell: function(item) {
+		return this.createCell(item.dueDateContentHTML.className, item.dueDateContentHTML.innerHTML);
 	},
 	prepareDueDateCell: function(item)
 	{
@@ -1146,10 +1159,18 @@ Module.register("MMM-Todoist", {
 		}
 		return {innerHTML: innerHTML, className: className};
 	},
-	addProjectCell: function(item) {
-		var project = this.tasks.projects.find(p => p.id === item.project_id);
+	findProject: function(item)
+	{
+		return this.tasks.projects.find(p => p.id === item.project_id);
+	},
+	addProjectCell: function(project) {
 		var projectcolor = this.config.projectColors[project.color];
-		var innerHTML = "<span class='projectcolor' style='color: " + projectcolor + "; background-color: " + projectcolor + "'></span>" + project.name;
+		var projectName = project.name;
+		if(this.config.maxProjectLength != 0 && projectName.length > this.config.maxProjectLength)
+		{
+			projectName = projectName.slice(0, this.config.maxProjectLength);
+		}
+		var innerHTML = "<span class='projectcolor' style='color: " + projectcolor + "; background-color: " + projectcolor + "'></span>" + projectName;
 		return this.createCell("xsmall", innerHTML);
 	},
 	addAssigneeAvatorCell: function(item, collaboratorsMap) {	
@@ -1165,6 +1186,25 @@ Module.register("MMM-Todoist", {
 		cell.appendChild(avatarImg);
 
 		return cell;
+	},
+	createRow: function(item, collaboratorsMap, maxDueDateCellLength, maxProjectCellLength)
+	{
+		var divRow = document.createElement("div");
+		//Add the Row
+		divRow.className = "divTableRow";
+		//Columns
+		divRow.appendChild(this.addPriorityIndicatorCell(item));
+		divRow.appendChild(this.addColumnSpacerCell());
+		divRow.appendChild(this.addTodoTextCell(item, maxDueDateCellLength, maxProjectCellLength));
+		divRow.appendChild(this.addDueDateCell(item));
+		if (this.config.showProject) {
+			divRow.appendChild(this.addColumnSpacerCell());
+			divRow.appendChild(this.addProjectCell(item.project));
+		}
+		if (this.config.displayAvatar) {
+			divRow.appendChild(this.addAssigneeAvatorCell(item, collaboratorsMap));
+		}
+		return divRow;
 	},
 	getDom: function () {
 		var self = this;
@@ -1204,44 +1244,16 @@ Module.register("MMM-Todoist", {
 			collaboratorsMap.set(this.tasks.collaborators[value].id, value);
 		}
 
+		var prevProjectName = "Unknown";
 		//Iterate through Todos
-		truncatedItems.forEach(item => {
+		truncatedItems.itemsToDisplay.forEach(item => {
 			if(item.parent == null) { return; }
-			var divRow = document.createElement("div");
-			//Add the Row
-			divRow.className = "divTableRow";
-			
-			/*Log.log(item.content);
-			Log.log(item);*/
-			//Columns
-			divRow.appendChild(this.addPriorityIndicatorCell(item.parent));
-			divRow.appendChild(this.addColumnSpacerCell());
-			var preparedDueDateContent = this.prepareDueDateCell(item.parent);
-			divRow.appendChild(this.addTodoTextCell(item.parent, preparedDueDateContent));
-			divRow.appendChild(this.addDueDateCell(item.parent, preparedDueDateContent));
-			if (this.config.showProject) {
-				divRow.appendChild(this.addColumnSpacerCell());
-				divRow.appendChild(this.addProjectCell(item.parent));
-			}
-			if (this.config.displayAvatar) {
-				divRow.appendChild(this.addAssigneeAvatorCell(item.parent, collaboratorsMap));
-			}
-
-			divBody.appendChild(divRow);
-
+			// Dispaly parent row
+			divBody.appendChild(self.createRow(item.parent, collaboratorsMap, truncatedItems.maxDueDateCellLength, truncatedItems.maxProjectCellLength));
+			//Display nested children in separate rows
 			item.children.forEach(childItem =>{
 				if(childItem == null){ return; }
-				var childDivRow = document.createElement("div");
-				//Add the Row
-				childDivRow.className = "divTableRow";
-				childDivRow.appendChild(this.addPriorityIndicatorCell(childItem));
-				childDivRow.appendChild(this.addColumnSpacerCell());
-				childDivRow.appendChild(this.addTodoTextCell(childItem, {innerHTML: "", className: ""}));
-				if (this.config.displayAvatar) {
-					childDivRow.appendChild(this.addAssigneeAvatorCell(childItem, collaboratorsMap));
-				}
-
-				divBody.appendChild(childDivRow);
+				divBody.appendChild(divBody.appendChild(self.createRow(childItem, collaboratorsMap, truncatedItems.maxDueDateCellLength, truncatedItems.maxProjectCellLength)));
 			});
 		});
 		
@@ -1283,42 +1295,63 @@ Module.register("MMM-Todoist", {
 		}
 		var displayCompleted = this.config.displayCompleted;
 		var deprioritizeCompleted = this.config.deprioritizeCompleted;
-		var itemsToDisplay = [];
+		var retVal = {itemsToDisplay: [], maxDueDateCellLength: 0, maxProjectCellLength: 0};
 		var itemsCount = 0;
 		for(let ii = 0; ii < this.tasks.items.length; ii++)
 		{
 			item = this.tasks.items[ii];
 			if(itemsCount >= maximumEntries)
 			{
-				return itemsToDisplay;
+				return retVal;
+			}
+			item.parent.dueDateContentHTML = self.prepareDueDateCell(item.parent);
+			item.parent.project = self.findProject(item.parent);
+			if(item.parent.dueDateContentHTML.innerHTML.length > retVal.maxDueDateCellLength)
+			{
+				retVal.maxDueDateCellLength = item.parent.dueDateContentHTML.innerHTML.length;
+			}
+			if((item.parent.project.name).length > retVal.maxDueDateCellLength)
+			{
+				Log.log(item.parent.project.name);
+				retVal.maxProjectCellLength = (item.parent.project.name).length;
 			}
 			// TODO why is a parent null???
 			//if(item.parent === undefined) {return;}
 			if(!item.parent.checked)
 			{
-				itemsToDisplay.push({parent: item.parent, children: []});
+				retVal.itemsToDisplay.push({parent: item.parent, children: []});
 				itemsCount++;
 				for(let jj = 0; jj < item.children.length; jj++)
 				{
 					itemChild = item.children[jj];
 					if(itemsCount >= maximumEntries)
 					{
-						return itemsToDisplay;
+						return retVal;
+					}
+					itemChild.dueDateContentHTML = self.prepareDueDateCell(itemChild);
+					itemChild.project = self.findProject(item.parent);
+					if(itemChild.dueDateContentHTML.innerHTML.length > retVal.maxDueDateCellLength)
+					{
+						retVal.maxDueDateCellLength = itemChild.dueDateContentHTML.innerHTML.length;
+					}
+					if((itemChild.project.name).length > retVal.maxDueDateCellLength)
+					{
+						retVal.maxProjectCellLength = (itemChild.project.name).length;
 					}
 					if(!itemChild.checked)
 					{
-						itemsToDisplay[ii].children.push(itemChild);
+						retVal.itemsToDisplay[ii].children.push(itemChild);
 						itemsCount++;
 					}
 					else
 					{
 						if(deprioritizeCompleted)
 						{
-							itemsToDisplay[ii].children.push(null);
+							retVal.itemsToDisplay[ii].children.push(null);
 						}
 						else
 						{
-							itemsToDisplay[ii].children.push(itemChild);
+							retVal.itemsToDisplay[ii].children.push(itemChild);
 							itemsCount++;
 						}
 					}
@@ -1328,43 +1361,43 @@ Module.register("MMM-Todoist", {
 			{
 				if(deprioritizeCompleted)
 				{
-					itemsToDisplay.push({parent: null, children: []});	
+					retVal.itemsToDisplay.push({parent: null, children: []});	
 				}
 				else
 				{
-					itemsToDisplay.push({parent: item.parent, children: []});	
+					retVal.itemsToDisplay.push({parent: item.parent, children: []});	
 					itemsCount++;
 				}
 			}
 		}
 		if(deprioritizeCompleted && displayCompleted)
 		{
-			for(let ii = 0; ii < itemsToDisplay.length; ii++)
+			for(let ii = 0; ii < retVal.itemsToDisplay.length; ii++)
 			{
 				if(itemsCount >= maximumEntries)
 				{
-					return itemsToDisplay;
+					return retVal;
 				}
-				if(itemsToDisplay[ii].parent == null)
+				if(retVal.itemsToDisplay[ii].parent == null)
 				{
-					itemsToDisplay[ii].parent = self.tasks.items[ii].parent;
+					retVal.itemsToDisplay[ii].parent = self.tasks.items[ii].parent;
 					itemsCount++;
 				}
-				for(let jj = 0; jj < itemsToDisplay[ii].children.length; jj++)
+				for(let jj = 0; jj < retVal.itemsToDisplay[ii].children.length; jj++)
 				{
 					if(itemsCount >= maximumEntries)
 					{
-						return itemsToDisplay;
+						return retVal;
 					}
-					if(itemsToDisplay[ii].children[jj] == null)
+					if(retVal.itemsToDisplay[ii].children[jj] == null)
 					{
-						itemsToDisplay[ii].children[jj] = self.tasks.items[ii].children[jj];
+						retVal.itemsToDisplay[ii].children[jj] = self.tasks.items[ii].children[jj];
 						itemsCount++;
 					}
 				}
 			}
 		}
-		return itemsToDisplay;
+		return retVal;
 	},
 	myProjectLog: function(stuff)
 	{
