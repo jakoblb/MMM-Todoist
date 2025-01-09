@@ -34,11 +34,11 @@ module.exports = NodeHelper.create({
 		{
 			if(payload.command === "COMPLETE_ITEM")
 			{
-				this.modifyItem(payload.id, payload.uuid, "item_complete");
+				this.modifyItem(payload.item, payload.uuid, "item_complete", payload.sender);
 			}
 			else if(payload.command === "UNCOMPLETE_ITEM")
 			{
-				this.modifyItem(payload.id, payload.uuid, "item_uncomplete");
+				this.modifyItem(payload.item, payload.uuid, "item_uncomplete", payload.sender);
 			}
 		}
 	},
@@ -134,7 +134,7 @@ module.exports = NodeHelper.create({
 			}
 		});
 	},
-	modifyItem : function(id, uuid, action) {
+	modifyItem : function(item, uuid, action, sender) {
 		var self = this;
 		//request.debug = true;
 		var acessCode = self.config.accessToken;
@@ -153,7 +153,7 @@ module.exports = NodeHelper.create({
 						uuid: uuid,
 						args:
 						{
-							id: id,
+							id: item.id,
 						}
 					}
 				])
@@ -166,12 +166,12 @@ module.exports = NodeHelper.create({
 				});
 				return console.error(" ERROR - MMM-Todoist: " + error);
 			}
-			if(self.config.debug || true){
+			if(self.config.debug){
 				console.log(body);
 			}
 			if (response.statusCode === 200) {
 				var replyJson = JSON.parse(body);
-				self.sendSocketNotification("COMMAND_COMPLETED", {commandType: action, id: id, syncStatus: replyJson});
+				self.sendSocketNotification("COMMAND_COMPLETED", {commandType: action, item: item, syncStatus: replyJson, target: sender});
 			}
 			else{
 				console.log("Todoist api request status="+response.statusCode);
